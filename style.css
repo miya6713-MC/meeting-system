@@ -341,90 +341,63 @@ html, body {
   padding: 2px 0;
 }
 
-/* ── アノテーションツールバー ────────────────── */
+/* ── アノテーションツールバー（コントロールバー内） ── */
 #ann-toolbar {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
+  display: none;      /* openPDF() で flex に切替 */
   align-items: center;
-  gap: 5px;
-  z-index: 25;
-  background: rgba(22,27,34,.88);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 8px 5px;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  gap: 3px;
+  flex-shrink: 0;
 }
 
-/* ボタン共通 */
-.fab {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+/* アノテーションツールボタン */
+.ann-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
   border: 1.5px solid transparent;
   background: transparent;
   color: var(--text-muted);
+  font-size: 11px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  white-space: nowrap;
   flex-shrink: 0;
   -webkit-appearance: none;
   transition: background .15s, color .15s, border-color .15s;
+  height: 34px;
 }
-.fab svg { pointer-events: none; }
-.fab:active { opacity: .6; }
-
-/* アクティブ状態 */
-.fab.active {
-  background: rgba(47,129,247,.2);
+.ann-tool-btn svg    { pointer-events: none; flex-shrink: 0; }
+.ann-tool-btn span   { pointer-events: none; }
+.ann-tool-btn:active { opacity: .6; }
+.ann-tool-btn.active {
+  background: rgba(47,129,247,.18);
   border-color: var(--accent);
   color: var(--accent);
 }
 
-/* カラーボタン */
-.color-fab {
-  width: 28px;
-  height: 28px;
+/* カラードット */
+.color-dot {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  border: 2.5px solid transparent;
+  border: 2px solid transparent;
   cursor: pointer;
   flex-shrink: 0;
   transition: transform .15s, border-color .15s;
 }
-.color-fab:active  { transform: scale(.85); }
-.color-fab.active  { border-color: #fff; transform: scale(1.15); }
+.color-dot:active { transform: scale(.85); }
+.color-dot.active { border-color: #fff !important; transform: scale(1.2); }
 
 /* 太さボタン */
 .size-fab {
-  width: 44px;
-  height: 36px;
-  border-radius: 8px;
-}
-.size-dot {
-  border-radius: 50%;
-  background: currentColor;
-  pointer-events: none;
-}
-.size-fab.active {
-  background: rgba(47,129,247,.2);
-  border-color: var(--accent);
-  color: var(--accent);
+  width: 34px;
+  padding: 5px 4px;
+  justify-content: center;
 }
 
-/* セパレーター */
-.fab-sep {
-  width: 28px;
-  height: 1px;
-  background: var(--border);
-  margin: 2px 0;
-  flex-shrink: 0;
-}
+/* 後方互換：古いfabクラスが残っていても崩れないように */
+.fab { display: none; }
 
 /* ── 付箋 ──────────────────────────────────── */
 .sticky {

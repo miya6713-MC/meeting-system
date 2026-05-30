@@ -548,7 +548,7 @@ function stopAnnMode() {
 /* カラー選択 */
 function setColor(color) {
   drawColor = color;
-  document.querySelectorAll('.color-fab').forEach(el => {
+  document.querySelectorAll('.color-dot').forEach(el => {
     el.classList.toggle('active', el.dataset.color === color);
   });
 }
@@ -890,7 +890,7 @@ on('btn-clear-page', () => {
 });
 
 /* カラー選択ボタン */
-document.querySelectorAll('.color-fab').forEach(el => {
+document.querySelectorAll('.color-dot').forEach(el => {
   el.addEventListener('click', () => {
     setColor(el.dataset.color);
     if (el.dataset.color === '#fdd835') {
