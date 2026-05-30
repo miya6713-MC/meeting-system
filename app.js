@@ -509,13 +509,27 @@ function setActiveTool(activeBtn) {
   if (activeBtn) activeBtn.classList.add('active');
 }
 
+/* スクロール制御: 描画中はスクロールを止める */
+function lockScroll() {
+  UI.pdfScroll.style.overflow    = 'hidden';
+  UI.pdfScroll.style.touchAction = 'none';
+  UI.canvasWrap.style.touchAction = 'none';
+}
+function unlockScroll() {
+  UI.pdfScroll.style.overflow    = 'auto';
+  UI.pdfScroll.style.touchAction = 'auto';
+  UI.canvasWrap.style.touchAction = 'auto';
+}
+
 function startDrawMode() {
   S.annMode  = 'draw';
   eraserMode = false;
   drawMarker = false;
   UI.annCanvas.classList.add('draw-mode');
   UI.annCanvas.style.cursor = 'crosshair';
+  lockScroll();
   setActiveTool(document.getElementById('btn-draw'));
+  showToast('ペンモード：PDFの上をなぞって描画');
 }
 function startMarkerMode() {
   S.annMode  = 'draw';
@@ -523,7 +537,9 @@ function startMarkerMode() {
   drawMarker = true;
   UI.annCanvas.classList.add('draw-mode');
   UI.annCanvas.style.cursor = 'crosshair';
+  lockScroll();
   setActiveTool(document.getElementById('btn-marker'));
+  showToast('マーカーモード：PDFの上をなぞってハイライト');
 }
 function startEraserMode() {
   S.annMode  = 'eraser';
@@ -531,7 +547,9 @@ function startEraserMode() {
   drawMarker = false;
   UI.annCanvas.classList.add('draw-mode');
   UI.annCanvas.style.cursor = 'cell';
+  lockScroll();
   setActiveTool(document.getElementById('btn-eraser'));
+  showToast('消しゴムモード：なぞって消去');
 }
 function stopAnnMode() {
   S.annMode  = null;
@@ -539,6 +557,7 @@ function stopAnnMode() {
   drawMarker = false;
   UI.annCanvas.classList.remove('draw-mode');
   UI.annCanvas.style.cursor = '';
+  unlockScroll();
   setActiveTool(null);
 }
 
@@ -559,25 +578,29 @@ function setSize(size) {
 }
 
 function canvasXY(e) {
-  const rect   = UI.annCanvas.getBoundingClientRect();
-  const touch  = e.touches && e.touches[0] || e.changedTouches && e.changedTouches[0];
+  // 常にannCanvasの座標系に変換（ラッパー経由のイベントも対応）
+  const rect    = UI.annCanvas.getBoundingClientRect();
+  const touch   = e.touches && e.touches[0] || e.changedTouches && e.changedTouches[0];
   const clientX = touch ? touch.clientX : e.clientX;
   const clientY = touch ? touch.clientY : e.clientY;
-  // Retina/高解像度ディスプレイ対応
-  const scaleX = UI.annCanvas.width  / rect.width;
-  const scaleY = UI.annCanvas.height / rect.height;
+  // キャンバスの実ピクセルとCSS表示サイズの比率（Retina対応）
+  const scaleX  = (UI.annCanvas.width  || 1) / (rect.width  || 1);
+  const scaleY  = (UI.annCanvas.height || 1) / (rect.height || 1);
   return [
     (clientX - rect.left) * scaleX,
     (clientY - rect.top)  * scaleY,
   ];
 }
 
-UI.annCanvas.addEventListener('mousedown',  startDraw);
-UI.annCanvas.addEventListener('touchstart', startDraw, { passive: false });
-UI.annCanvas.addEventListener('mousemove',  moveDraw);
-UI.annCanvas.addEventListener('touchmove',  moveDraw, { passive: false });
-UI.annCanvas.addEventListener('mouseup',    endDraw);
-UI.annCanvas.addEventListener('touchend',   endDraw);
+/* キャンバスとラッパー両方でイベントを受け取る（iPad対応） */
+[UI.annCanvas, UI.canvasWrap].forEach(el => {
+  el.addEventListener('mousedown',  startDraw);
+  el.addEventListener('touchstart', startDraw, { passive: false });
+  el.addEventListener('mousemove',  moveDraw);
+  el.addEventListener('touchmove',  moveDraw, { passive: false });
+  el.addEventListener('mouseup',    endDraw);
+  el.addEventListener('touchend',   endDraw);
+});
 
 function startDraw(e) {
   if (S.annMode !== 'draw' && S.annMode !== 'eraser') return;
