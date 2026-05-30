@@ -92,8 +92,11 @@
 
       <!-- PDFビューア（右方向に横スクロール） -->
       <div id="pdf-scroll">
-        <canvas id="pdf-canvas"></canvas>
-        <canvas id="ann-canvas"></canvas>
+        <!-- PDFとアノテーションキャンバスをラッパーで重ねる -->
+        <div id="canvas-wrap">
+          <canvas id="pdf-canvas"></canvas>
+          <canvas id="ann-canvas"></canvas>
+        </div>
       </div>
 
       <!-- iframeビューア（Office・動画） -->
@@ -104,12 +107,81 @@
         <div id="pointer-dot"></div>
       </div>
 
-      <!-- 右フローティングツールバー -->
+      <!-- アノテーションツールバー -->
       <div id="ann-toolbar" style="display:none">
-        <button class="fab" id="btn-draw"      title="ペン">✏️</button>
-        <button class="fab" id="btn-eraser"    title="消しゴム">🧹</button>
-        <button class="fab" id="btn-sticky"    title="付箋">📌</button>
-        <button class="fab" id="btn-clear-page" title="このページを消去">🗑</button>
+
+        <!-- ペン -->
+        <button class="fab" id="btn-draw" title="ペン">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+          </svg>
+        </button>
+
+        <!-- マーカー -->
+        <button class="fab" id="btn-marker" title="マーカー">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 21v-4l11-11 4 4L7 21H3z"/>
+            <path d="M14 6l4 4"/>
+            <path d="M17 3l1 1a2 2 0 0 1 0 2.828L17 8l-4-4 1-1a2 2 0 0 1 2.828 0z" fill="currentColor" stroke="none" opacity="0.4"/>
+          </svg>
+        </button>
+
+        <!-- 消しゴム -->
+        <button class="fab" id="btn-eraser" title="消しゴム">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 20H7L3 16l10-10 7 7-2.5 2.5"/>
+            <path d="M6.5 17.5l4-4"/>
+          </svg>
+        </button>
+
+        <!-- 付箋 -->
+        <button class="fab" id="btn-sticky" title="付箋">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/>
+            <path d="M15 3v6h6"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="13" y2="17"/>
+          </svg>
+        </button>
+
+        <!-- セパレーター -->
+        <div class="fab-sep"></div>
+
+        <!-- カラーパレット -->
+        <div class="fab color-fab" id="btn-color-red"    data-color="#e53935" title="赤" style="background:#e53935;"></div>
+        <div class="fab color-fab" id="btn-color-blue"   data-color="#1e88e5" title="青" style="background:#1e88e5;"></div>
+        <div class="fab color-fab" id="btn-color-green"  data-color="#43a047" title="緑" style="background:#43a047;"></div>
+        <div class="fab color-fab" id="btn-color-yellow" data-color="#fdd835" title="黄（マーカー）" style="background:#fdd835;"></div>
+        <div class="fab color-fab" id="btn-color-black"  data-color="#212121" title="黒" style="background:#212121;"></div>
+
+        <!-- セパレーター -->
+        <div class="fab-sep"></div>
+
+        <!-- 線の太さ -->
+        <button class="fab size-fab" id="btn-size-s" data-size="2"  title="細">
+          <div class="size-dot" style="width:4px;height:4px;"></div>
+        </button>
+        <button class="fab size-fab" id="btn-size-m" data-size="5"  title="中">
+          <div class="size-dot" style="width:8px;height:8px;"></div>
+        </button>
+        <button class="fab size-fab" id="btn-size-l" data-size="12" title="太">
+          <div class="size-dot" style="width:14px;height:14px;"></div>
+        </button>
+
+        <!-- セパレーター -->
+        <div class="fab-sep"></div>
+
+        <!-- このページを消去 -->
+        <button class="fab" id="btn-clear-page" title="このページの描画を消去">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6"/>
+            <path d="M14 11v6"/>
+            <path d="M9 6V4h6v2"/>
+          </svg>
+        </button>
+
       </div>
 
       <!-- サムネイルパネル（下から） -->

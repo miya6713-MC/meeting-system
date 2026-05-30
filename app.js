@@ -59,6 +59,7 @@ const UI = {
   btnProjector:   $('btn-projector'),
   viewerWrap:     $('viewer-wrap'),
   pdfScroll:      $('pdf-scroll'),
+  canvasWrap:     $('canvas-wrap'),
   pdfCanvas:      $('pdf-canvas'),
   annCanvas:      $('ann-canvas'),
   iframeViewer:   $('iframe-viewer'),
@@ -390,27 +391,17 @@ async function renderPage(pageNum) {
   const page = await S.pdfDoc.getPage(pageNum);
   const vp   = page.getViewport({ scale: S.scale });
 
+  // PDFとアノテーションのキャンバスサイズを同期
   UI.pdfCanvas.width  = vp.width;
   UI.pdfCanvas.height = vp.height;
   UI.annCanvas.width  = vp.width;
   UI.annCanvas.height = vp.height;
-
-  // アノテーションキャンバスをPDFキャンバスに重ねる
-  UI.annCanvas.style.left = UI.pdfCanvas.offsetLeft + 'px';
 
   S.renderTask = page.render({ canvasContext: pdfCtx, viewport: vp });
   await S.renderTask.promise;
   S.renderTask = null;
 
   restoreDrawings();
-  updateAnnCanvasPos();
-}
-
-function updateAnnCanvasPos() {
-  const rect = UI.pdfCanvas.getBoundingClientRect();
-  const scrollRect = UI.pdfScroll.getBoundingClientRect();
-  UI.annCanvas.style.left = (rect.left - scrollRect.left + UI.pdfScroll.scrollLeft) + 'px';
-  UI.annCanvas.style.top  = '16px';
 }
 
 function updatePageUI() {
@@ -444,11 +435,10 @@ async function setScale(sc) {
 
 function fitToWidth() {
   if (!S.pdfDoc) return;
-  const availW = UI.pdfScroll.clientWidth - 32;
-  // 現在のキャンバス幅から比率計算
+  const availW = UI.pdfScroll.clientWidth - 48;
   if (UI.pdfCanvas.width > 0) {
-    const ratio = availW / (UI.pdfCanvas.width / S.scale);
-    setScale(ratio);
+    const naturalW = UI.pdfCanvas.width / S.scale;
+    setScale(availW / naturalW);
   }
 }
 
@@ -502,44 +492,87 @@ function updateThumbHighlight() {
 }
 
 /* ───────── アノテーション：描画 ──────────────── */
-let drawing = false;
-let drawPts  = [];
-let drawColor = '#e83535';
-let drawWidth = 3;
+let drawing    = false;
+let drawPts    = [];
+let drawColor  = '#e53935';   // 現在の色
+let drawWidth  = 5;           // 現在の太さ
+let drawMarker = false;       // マーカーモード（半透明）
 let eraserMode = false;
 
+// ツールボタン一覧（stopAnnMode で全解除）
+const toolBtns = () => [
+  document.getElementById('btn-draw'),
+  document.getElementById('btn-marker'),
+  document.getElementById('btn-eraser'),
+  document.getElementById('btn-sticky'),
+];
+
+function setActiveTool(activeBtn) {
+  toolBtns().forEach(b => b && b.classList.remove('active'));
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
 function startDrawMode() {
-  S.annMode = 'draw';
+  S.annMode  = 'draw';
   eraserMode = false;
+  drawMarker = false;
   UI.annCanvas.classList.add('draw-mode');
-  UI.btnDraw.classList.add('active');
-  UI.btnEraser.classList.remove('active');
-  UI.btnSticky.classList.remove('active');
+  UI.annCanvas.style.cursor = 'crosshair';
+  setActiveTool(document.getElementById('btn-draw'));
+}
+function startMarkerMode() {
+  S.annMode  = 'draw';
+  eraserMode = false;
+  drawMarker = true;
+  UI.annCanvas.classList.add('draw-mode');
+  UI.annCanvas.style.cursor = 'crosshair';
+  setActiveTool(document.getElementById('btn-marker'));
 }
 function startEraserMode() {
-  S.annMode = 'eraser';
+  S.annMode  = 'eraser';
   eraserMode = true;
+  drawMarker = false;
   UI.annCanvas.classList.add('draw-mode');
   UI.annCanvas.style.cursor = 'cell';
-  UI.btnEraser.classList.add('active');
-  UI.btnDraw.classList.remove('active');
-  UI.btnSticky.classList.remove('active');
+  setActiveTool(document.getElementById('btn-eraser'));
 }
 function stopAnnMode() {
-  S.annMode = null;
+  S.annMode  = null;
   eraserMode = false;
+  drawMarker = false;
   UI.annCanvas.classList.remove('draw-mode');
   UI.annCanvas.style.cursor = '';
-  UI.btnDraw.classList.remove('active');
-  UI.btnEraser.classList.remove('active');
-  UI.btnSticky.classList.remove('active');
+  setActiveTool(null);
+}
+
+/* カラー選択 */
+function setColor(color) {
+  drawColor = color;
+  document.querySelectorAll('.color-fab').forEach(el => {
+    el.classList.toggle('active', el.dataset.color === color);
+  });
+}
+
+/* 太さ選択 */
+function setSize(size) {
+  drawWidth = size;
+  document.querySelectorAll('.size-fab').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.size) === size);
+  });
 }
 
 function canvasXY(e) {
-  const rect = UI.annCanvas.getBoundingClientRect();
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  return [clientX - rect.left, clientY - rect.top];
+  const rect   = UI.annCanvas.getBoundingClientRect();
+  const touch  = e.touches && e.touches[0] || e.changedTouches && e.changedTouches[0];
+  const clientX = touch ? touch.clientX : e.clientX;
+  const clientY = touch ? touch.clientY : e.clientY;
+  // Retina/高解像度ディスプレイ対応
+  const scaleX = UI.annCanvas.width  / rect.width;
+  const scaleY = UI.annCanvas.height / rect.height;
+  return [
+    (clientX - rect.left) * scaleX,
+    (clientY - rect.top)  * scaleY,
+  ];
 }
 
 UI.annCanvas.addEventListener('mousedown',  startDraw);
@@ -567,13 +600,9 @@ function moveDraw(e) {
   if (eraserMode) {
     eraseAtPoint(x, y);
   } else {
-    // リアルタイム描画
-    annCtx.strokeStyle = drawColor;
-    annCtx.lineWidth   = drawWidth;
-    annCtx.lineCap     = 'round';
-    annCtx.lineJoin    = 'round';
     if (drawPts.length >= 2) {
       const prev = drawPts[drawPts.length - 2];
+      applyStrokeStyle(annCtx, drawColor, drawWidth, drawMarker);
       annCtx.beginPath();
       annCtx.moveTo(prev[0], prev[1]);
       annCtx.lineTo(x, y);
@@ -586,7 +615,27 @@ function endDraw(e) {
   if (!drawing) return;
   drawing = false;
   if (!eraserMode && drawPts.length >= 2) {
-    saveDrawingPath(drawPts, drawColor, drawWidth);
+    saveDrawingPath(drawPts, drawColor, drawWidth, drawMarker);
+    // マーカーはストローク完了後に再描画（半透明を正確に重ねるため）
+    if (drawMarker) restoreDrawings();
+  }
+}
+
+function applyStrokeStyle(ctx, color, width, isMarker) {
+  if (isMarker) {
+    ctx.globalAlpha    = 0.35;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle    = color;
+    ctx.lineWidth      = width * 4;   // マーカーは太め
+    ctx.lineCap        = 'square';
+    ctx.lineJoin       = 'square';
+  } else {
+    ctx.globalAlpha    = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle    = color;
+    ctx.lineWidth      = width;
+    ctx.lineCap        = 'round';
+    ctx.lineJoin       = 'round';
   }
 }
 
@@ -608,11 +657,11 @@ function removeNearbyStrokes(ex, ey, r) {
   saveDrawings();
 }
 
-function saveDrawingPath(pts, color, width) {
+function saveDrawingPath(pts, color, width, isMarker) {
   if (!S.fileId) return;
   if (!S.drawings[S.fileId]) S.drawings[S.fileId] = {};
   if (!S.drawings[S.fileId][S.page]) S.drawings[S.fileId][S.page] = [];
-  S.drawings[S.fileId][S.page].push({ pts, color, width });
+  S.drawings[S.fileId][S.page].push({ pts, color, width, marker: !!isMarker });
   saveDrawings();
 }
 
@@ -621,10 +670,7 @@ function restoreDrawings() {
   const strokes = (S.drawings[S.fileId] || {})[S.page] || [];
   for (const stroke of strokes) {
     if (stroke.pts.length < 2) continue;
-    annCtx.strokeStyle = stroke.color || '#e83535';
-    annCtx.lineWidth   = stroke.width || 3;
-    annCtx.lineCap     = 'round';
-    annCtx.lineJoin    = 'round';
+    applyStrokeStyle(annCtx, stroke.color || '#e53935', stroke.width || 5, stroke.marker);
     annCtx.beginPath();
     annCtx.moveTo(stroke.pts[0][0], stroke.pts[0][1]);
     for (let i = 1; i < stroke.pts.length; i++) {
@@ -632,6 +678,9 @@ function restoreDrawings() {
     }
     annCtx.stroke();
   }
+  // globalAlpha をリセット
+  annCtx.globalAlpha = 1.0;
+  annCtx.globalCompositeOperation = 'source-over';
 }
 
 function clearAnnCanvas() {
@@ -809,28 +858,57 @@ UI.btnThumbs.addEventListener('click', () => {
 });
 
 /* ───────── アノテーションツールバー ──────────── */
-UI.btnDraw.addEventListener('click', () => {
-  if (S.annMode === 'draw') stopAnnMode(); else startDrawMode();
+// null チェック付きでイベント登録するヘルパー
+function on(id, fn) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', fn);
+}
+
+on('btn-draw', () => {
+  if (S.annMode === 'draw' && !drawMarker) stopAnnMode(); else startDrawMode();
 });
-UI.btnEraser.addEventListener('click', () => {
+on('btn-marker', () => {
+  if (S.annMode === 'draw' && drawMarker) stopAnnMode(); else startMarkerMode();
+});
+on('btn-eraser', () => {
   if (S.annMode === 'eraser') stopAnnMode(); else startEraserMode();
 });
-UI.btnSticky.addEventListener('click', () => {
+on('btn-sticky', () => {
   if (S.annMode === 'sticky') {
     stopAnnMode();
   } else {
+    stopAnnMode();
     S.annMode = 'sticky';
-    UI.btnSticky.classList.add('active');
-    UI.btnDraw.classList.remove('active');
-    UI.btnEraser.classList.remove('active');
+    setActiveTool(document.getElementById('btn-sticky'));
     showToast('付箋を貼る位置をタップしてください');
   }
 });
-UI.btnClearPage.addEventListener('click', () => {
+on('btn-clear-page', () => {
   if (confirm('このページのアノテーションをすべて削除しますか？')) {
     clearCurrentPageDrawings();
   }
 });
+
+/* カラー選択ボタン */
+document.querySelectorAll('.color-fab').forEach(el => {
+  el.addEventListener('click', () => {
+    setColor(el.dataset.color);
+    if (el.dataset.color === '#fdd835') {
+      startMarkerMode();
+    } else if (S.annMode !== 'draw' || drawMarker) {
+      startDrawMode();
+    }
+  });
+});
+
+/* 太さ選択ボタン */
+document.querySelectorAll('.size-fab').forEach(el => {
+  el.addEventListener('click', () => setSize(parseInt(el.dataset.size)));
+});
+
+// 初期選択状態
+setColor('#e53935');
+setSize(5);
 
 /* ───────── アノテーション一覧 ─────────────── */
 UI.btnAnnList.addEventListener('click', showAnnList);

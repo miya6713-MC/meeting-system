@@ -240,22 +240,33 @@ html, body {
   position: relative;
 }
 
+/* PDFとアノテーションを重ねるラッパー */
+#canvas-wrap {
+  position: relative;
+  display: inline-block;  /* PDFの幅に合わせて縮む */
+  margin: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 16px rgba(0,0,0,.6);
+}
+
 /* PDF キャンバス */
 #pdf-canvas {
   display: block;
-  margin: 16px auto;
-  box-shadow: 0 2px 16px rgba(0,0,0,.6);
-  flex-shrink: 0;
 }
 
-/* アノテーションキャンバス（PDFの上に重ねる） */
+/* アノテーションキャンバス: PDFに完全に重なる */
 #ann-canvas {
   position: absolute;
-  top: 16px;
+  top: 0;
+  left: 0;
   pointer-events: none;
   z-index: 5;
+  touch-action: none;  /* iPadのスクロール干渉を防ぐ */
 }
-#ann-canvas.draw-mode { pointer-events: all; cursor: crosshair; }
+#ann-canvas.draw-mode {
+  pointer-events: all;
+  cursor: crosshair;
+}
 
 /* iframeビューア（Office・動画） */
 #iframe-viewer {
@@ -330,7 +341,7 @@ html, body {
   padding: 2px 0;
 }
 
-/* ── 右フローティングツールバー ─────────────── */
+/* ── アノテーションツールバー ────────────────── */
 #ann-toolbar {
   position: absolute;
   right: 10px;
@@ -338,28 +349,82 @@ html, body {
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 5px;
   z-index: 25;
-}
-.fab {
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
+  background: rgba(22,27,34,.88);
   border: 1px solid var(--border);
-  background: rgba(22,27,34,.92);
-  color: var(--text);
-  font-size: 19px;
+  border-radius: 16px;
+  padding: 8px 5px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+}
+
+/* ボタン共通 */
+.fab {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   flex-shrink: 0;
   -webkit-appearance: none;
+  transition: background .15s, color .15s, border-color .15s;
 }
-.fab:active { opacity: .65; }
-.fab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fab svg { pointer-events: none; }
+.fab:active { opacity: .6; }
+
+/* アクティブ状態 */
+.fab.active {
+  background: rgba(47,129,247,.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* カラーボタン */
+.color-fab {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform .15s, border-color .15s;
+}
+.color-fab:active  { transform: scale(.85); }
+.color-fab.active  { border-color: #fff; transform: scale(1.15); }
+
+/* 太さボタン */
+.size-fab {
+  width: 44px;
+  height: 36px;
+  border-radius: 8px;
+}
+.size-dot {
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+}
+.size-fab.active {
+  background: rgba(47,129,247,.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* セパレーター */
+.fab-sep {
+  width: 28px;
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+  flex-shrink: 0;
+}
 
 /* ── 付箋 ──────────────────────────────────── */
 .sticky {
