@@ -243,10 +243,13 @@ html, body {
 /* PDFとアノテーションを重ねるラッパー */
 #canvas-wrap {
   position: relative;
-  display: inline-block;  /* PDFの幅に合わせて縮む */
+  display: inline-block;
   margin: 16px;
   flex-shrink: 0;
   box-shadow: 0 2px 16px rgba(0,0,0,.6);
+  touch-action: auto;   /* 描画中はJSでnoneに切替 */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* PDF キャンバス */
