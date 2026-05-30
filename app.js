@@ -317,7 +317,6 @@ async function openFile(fileId, name, mime) {
   UI.emptyState.style.display = 'none';
   UI.pdfScroll.style.display = 'none';
   UI.iframeViewer.style.display = 'none';
-  UI.annToolbar.style.display = 'none';
   UI.thumbPanel.classList.remove('open');
   S.thumbsOpen = false;
   UI.btnThumbs.classList.remove('active');
