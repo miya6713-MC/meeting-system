@@ -343,7 +343,7 @@ html, body {
 
 /* ── アノテーションツールバー（コントロールバー内） ── */
 #ann-toolbar {
-  display: none;      /* openPDF() で flex に切替 */
+  display: flex;
   align-items: center;
   gap: 3px;
   flex-shrink: 0;

@@ -353,7 +353,6 @@ async function openPDF(fileId) {
 
   UI.pdfScroll.style.display = 'flex';
   UI.iframeViewer.style.display = 'none';
-  UI.annToolbar.style.display = 'flex';
 
   await renderPage(S.page);
   updatePageUI();
@@ -376,7 +375,6 @@ function openIframe(url) {
   UI.iframeViewer.src = url;
   UI.iframeViewer.style.display = 'block';
   UI.pdfScroll.style.display = 'none';
-  UI.annToolbar.style.display = 'none';
   updatePageUI();
 }
 
