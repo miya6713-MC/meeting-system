@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>プロジェクタ出力</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    #proj-canvas-wrap {
+      width: 100%; height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #proj-canvas {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    #proj-iframe {
+      width: 100%; height: 100%;
+      border: none;
+      display: none;
+      position: absolute;
+      top: 0; left: 0;
+    }
+
+    /* ポインタードット */
+    #proj-pointer {
+      position: absolute;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255, 60, 60, .88);
+      border: 3px solid #fff;
+      box-shadow: 0 0 18px rgba(255,60,60,.8);
+      transform: translate(-50%, -50%);
+      display: none;
+      pointer-events: none;
+      transition: left .06s linear, top .06s linear;
+    }
+
+    /* 待機画面 */
+    #waiting {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: #555;
+      font-size: 18px;
+    }
+    #waiting .big { font-size: 64px; }
+
+    /* ページ番号オーバーレイ（右下） */
+    #page-badge {
+      position: absolute;
+      bottom: 12px;
+      right: 16px;
+      background: rgba(0,0,0,.5);
+      color: rgba(255,255,255,.7);
+      font-size: 14px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="proj-canvas-wrap">
+  <canvas id="proj-canvas"></canvas>
+  <iframe id="proj-iframe" allowfullscreen></iframe>
+  <div id="proj-pointer"></div>
+  <div id="waiting">
+    <div class="big">📽</div>
+    <div>プロジェクタ出力待機中</div>
+    <div style="font-size:14px;color:#444">メイン画面でファイルを選択してください</div>
+  </div>
+  <div id="page-badge"></div>
+</div>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const canvas  = document.getElementById('proj-canvas');
+  const iframe  = document.getElementById('proj-iframe');
+  const pointer = document.getElementById('proj-pointer');
+  const waiting = document.getElementById('waiting');
+  const badge   = document.getElementById('page-badge');
+  const ctx     = canvas.getContext('2d');
+
+  let pdfDoc     = null;
+  let currentUrl = null;
+  let renderTask = null;
+
+  // BroadcastChannel で親ウィンドウから状態を受け取る
+  const bc = new BroadcastChannel('meeting-system');
+  bc.onmessage = e => handleMsg(e.data);
+
+  // 親が閉じたときも受け取れるように opener 経由でも試みる
+  window.addEventListener('message', e => handleMsg(e.data));
+
+  async function handleMsg(data) {
+    if (!data) return;
+
+    // ポインター
+    if (data.pointer) {
+      const { x, y, active } = data.pointer;
+      if (active) showPointer(x, y);
+      return;
+    }
+
+    // ファイル切り替え
+    if (data.fileId) {
+      waiting.style.display = 'none';
+      await loadFile(data);
+    }
+
+    // ページ切り替え（同一ファイル）
+    if (data.page && pdfDoc && data.fileId === currentFileId) {
+      await renderPage(data.page);
+    }
+  }
+
+  let currentFileId = null;
+
+  async function loadFile(data) {
+    if (data.fileId === currentFileId && pdfDoc) {
+      await renderPage(data.page || 1);
+      return;
+    }
+    currentFileId = data.fileId;
+    pdfDoc = null;
+
+    const mime = data.mimeType || '';
+
+    if (mime === 'application/pdf') {
+      canvas.style.display  = 'block';
+      iframe.style.display  = 'none';
+      const token = window.opener && window.opener.S && window.opener.S.token;
+      if (!token) { showIframe(`https://drive.google.com/file/d/${data.fileId}/preview`); return; }
+      try {
+        const res = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${data.fileId}?alt=media`,
+          { headers: { Authorization: 'Bearer ' + token } }
+        );
+        const buf = await res.arrayBuffer();
+        pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+        await renderPage(data.page || 1);
+      } catch(e) {
+        showIframe(`https://drive.google.com/file/d/${data.fileId}/preview`);
+      }
+    } else {
+      showIframe(`https://drive.google.com/file/d/${data.fileId}/preview`);
+    }
+  }
+
+  function showIframe(url) {
+    canvas.style.display = 'none';
+    iframe.style.display = 'block';
+    iframe.src = url;
+    badge.style.display = 'none';
+  }
+
+  async function renderPage(pageNum) {
+    if (!pdfDoc) return;
+    if (renderTask) { renderTask.cancel(); renderTask = null; }
+
+    const page = await pdfDoc.getPage(pageNum);
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const vp0  = page.getViewport({ scale: 1 });
+    const sc   = Math.min(winW / vp0.width, winH / vp0.height);
+    const vp   = page.getViewport({ scale: sc });
+
+    canvas.width  = vp.width;
+    canvas.height = vp.height;
+
+    renderTask = page.render({ canvasContext: ctx, viewport: vp });
+    await renderTask.promise;
+    renderTask = null;
+
+    badge.textContent   = `${pageNum} / ${pdfDoc.numPages}`;
+    badge.style.display = 'block';
+  }
+
+  // ポインター表示
+  let pointerTimer;
+  function showPointer(rx, ry) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    pointer.style.left    = (rx * w) + 'px';
+    pointer.style.top     = (ry * h) + 'px';
+    pointer.style.display = 'block';
+    clearTimeout(pointerTimer);
+    pointerTimer = setTimeout(() => pointer.style.display = 'none', 3000);
+  }
+
+  // ウィンドウリサイズ時に再描画
+  window.addEventListener('resize', () => {
+    if (pdfDoc) renderPage(parseInt(badge.textContent) || 1);
+  });
+</script>
+</body>
+</html>

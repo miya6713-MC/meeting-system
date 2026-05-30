@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>会議システム</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- Firebase（config.js で enabled:true の場合のみ有効） -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
+
+  <!-- Google Identity Services: onload で確実に初期化 -->
+  <script src="https://accounts.google.com/gsi/client"
+          onload="onGISReady()" async defer></script>
+</head>
+<body>
+
+<!-- ── ログイン画面 ────────────────────────────────────── -->
+<div id="login-screen">
+  <div style="font-size:48px">📋</div>
+  <h1 id="app-title-login">会議システム</h1>
+  <p>Google ドライブの資料を<br>会議室でペーパーレス表示します</p>
+  <button class="btn primary" id="btn-signin" style="padding:12px 28px;font-size:15px;">
+    Googleでサインイン
+  </button>
+  <p style="font-size:11px;margin-top:8px;">
+    ※ 初回はGoogleアカウントへのアクセスを許可してください
+  </p>
+</div>
+
+<!-- ── ヘッダー ─────────────────────────────────────────── -->
+<header id="header">
+  <span id="app-title">会議システム</span>
+  <span id="current-file-name"></span>
+
+  <!-- ページ操作 -->
+  <button class="btn icon-only" id="btn-prev" title="前のページ" disabled>◀</button>
+  <span   id="page-indicator"></span>
+  <button class="btn icon-only" id="btn-next" title="次のページ" disabled>▶</button>
+
+  <div class="ctrl-sep" style="display:inline-block"></div>
+
+  <!-- プレゼンター同期 -->
+  <button class="btn" id="btn-presenter" title="プレゼンターになる">🎤 発表者</button>
+  <button class="btn" id="btn-viewer"    title="ビューワーとして接続">👁 視聴</button>
+  <button class="btn" id="btn-projector" title="プロジェクタ出力">📽 出力</button>
+</header>
+
+<!-- バッジ -->
+<div class="badge" id="badge-presenter">● 発表者</div>
+<div class="badge" id="badge-viewer">● 視聴中</div>
+<div class="badge" id="badge-projector">● 出力中</div>
+
+<!-- ── メインレイアウト ─────────────────────────────────── -->
+<div id="layout" style="display:none">
+
+  <!-- 左：ファイルツリー（縦スクロール） -->
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <span class="label">資料一覧</span>
+      <button class="btn icon-only" id="btn-refresh" title="更新"
+        onclick="loadTree(CONFIG.rootFolderId, document.getElementById('file-tree'), 0)">↺</button>
+    </div>
+    <div id="file-tree"></div>
+  </aside>
+
+  <!-- サイドバー開閉タブ -->
+  <div id="sidebar-tab">◀</div>
+
+  <!-- 右：ビューアエリア -->
+  <main id="main">
+
+    <!-- コントロールバー -->
+    <div id="viewer-controls">
+      <button class="btn icon-only" id="btn-zoom-out" title="縮小">－</button>
+      <button class="btn icon-only" id="btn-zoom-in"  title="拡大">＋</button>
+      <button class="btn icon-only" id="btn-fit"      title="幅に合わせる">⊡</button>
+
+      <div class="ctrl-sep"></div>
+      <button class="btn icon-only" id="btn-thumbs"   title="サムネイル一覧">⊞</button>
+      <button class="btn icon-only" id="btn-ann-list" title="アノテーション一覧">📋</button>
+    </div>
+
+    <!-- ビューア本体 -->
+    <div id="viewer-wrap">
+
+      <!-- PDFビューア（右方向に横スクロール） -->
+      <div id="pdf-scroll">
+        <canvas id="pdf-canvas"></canvas>
+        <canvas id="ann-canvas"></canvas>
+      </div>
+
+      <!-- iframeビューア（Office・動画） -->
+      <iframe id="iframe-viewer" allowfullscreen></iframe>
+
+      <!-- ポインターレイヤー -->
+      <div id="pointer-layer">
+        <div id="pointer-dot"></div>
+      </div>
+
+      <!-- 右フローティングツールバー -->
+      <div id="ann-toolbar" style="display:none">
+        <button class="fab" id="btn-draw"      title="ペン">✏️</button>
+        <button class="fab" id="btn-eraser"    title="消しゴム">🧹</button>
+        <button class="fab" id="btn-sticky"    title="付箋">📌</button>
+        <button class="fab" id="btn-clear-page" title="このページを消去">🗑</button>
+      </div>
+
+      <!-- サムネイルパネル（下から） -->
+      <div id="thumb-panel"></div>
+
+      <!-- アノテーション一覧オーバーレイ -->
+      <div id="ann-list">
+        <div id="ann-list-header">
+          <h3>アノテーション一覧</h3>
+          <button class="btn" id="ann-list-close">閉じる</button>
+        </div>
+        <div id="ann-list-body"></div>
+      </div>
+
+      <!-- 空状態 -->
+      <div id="empty-state">
+        <div class="big">📂</div>
+        <div>左のリストからファイルを選んでください</div>
+      </div>
+
+      <!-- ローディング -->
+      <div id="loading">
+        <div class="spinner"></div>
+        <span>読み込み中…</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ── セッションダイアログ ───────────────────────────── -->
+<div id="session-dialog">
+  <div id="session-inner">
+    <h3>同期セッション</h3>
+    <p>同じ部屋コードを入力した端末と<br>ファイル・ページ・ポインターが同期されます</p>
+    <input id="session-input" type="text" maxlength="12"
+           placeholder="例: ROOM-A" autocomplete="off" autocapitalize="characters">
+    <div class="row">
+      <button class="btn success" id="btn-session-pres">🎤 発表者として参加</button>
+      <button class="btn"         id="btn-session-view">👁 視聴者として参加</button>
+    </div>
+    <button class="btn" id="btn-session-cancel" style="justify-content:center">キャンセル</button>
+  </div>
+</div>
+
+<!-- トースト -->
+<div id="toast"></div>
+
+<!-- 設定 & アプリ本体 -->
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+<script>
+  // GIS ライブラリの onload コールバック
+  // async defer で読み込まれるため、app.js より後に呼ばれる場合も
+  // app.js より前に呼ばれる場合も両方対応する
+  function onGISReady() {
+    if (typeof appReady !== 'undefined' && appReady) {
+      initAuth();
+    } else {
+      window._gisReady = true;
+    }
+  }
+</script>
+
+</body>
+</html>
