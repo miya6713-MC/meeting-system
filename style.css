@@ -281,7 +281,7 @@ html, body {
   top: 0; left: 0;
 }
 
-/* 描画オーバーレイ: 描画モード中に全面を覆いタッチを独占する */
+/* 描画オーバーレイキャンバス: 描画モード中に全面を覆い、ここに直接描く */
 #draw-overlay {
   display: none;
   position: absolute;
@@ -291,13 +291,10 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   cursor: crosshair;
+  /* サイズはJSで動的に設定 */
 }
-#draw-overlay.active {
-  display: block;
-}
-#draw-overlay.eraser-mode {
-  cursor: cell;
-}
+#draw-overlay.active    { display: block; }
+#draw-overlay.eraser-mode { cursor: cell; }
 
 /* ポインターレイヤー */
 #pointer-layer {

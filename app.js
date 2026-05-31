@@ -512,11 +512,13 @@ function setActiveTool(activeBtn) {
 
 /* オーバーレイ表示/非表示 */
 function showOverlay(eraserCursor = false) {
+  resizeOverlay();   // viewer-wrap に合わせてキャンバスサイズを設定
   UI.drawOverlay.classList.add('active');
   UI.drawOverlay.classList.toggle('eraser-mode', eraserCursor);
 }
 function hideOverlay() {
   UI.drawOverlay.classList.remove('active', 'eraser-mode');
+  overlayCtx && overlayCtx.clearRect(0, 0, UI.drawOverlay.width, UI.drawOverlay.height);
 }
 
 function startDrawMode() {
@@ -567,68 +569,119 @@ function setSize(size) {
   });
 }
 
-function canvasXY(e) {
-  // オーバーレイのタッチ → annCanvas座標系に変換
-  const touch   = e.touches && e.touches[0] || e.changedTouches && e.changedTouches[0];
-  const clientX = touch ? touch.clientX : e.clientX;
-  const clientY = touch ? touch.clientY : e.clientY;
-  const rect    = UI.annCanvas.getBoundingClientRect();
-  // キャンバスの実ピクセル / CSS表示サイズ（Retina / 拡大縮小対応）
-  const scaleX  = (UI.annCanvas.width  || 1) / (rect.width  || 1);
-  const scaleY  = (UI.annCanvas.height || 1) / (rect.height || 1);
-  return [
-    (clientX - rect.left) * scaleX,
-    (clientY - rect.top)  * scaleY,
-  ];
+/* ── Pointer Events で描画（マウス・タッチ・Apple Pencil 統一対応） ── */
+
+let overlayCtx = null;   // オーバーレイキャンバスの描画コンテキスト
+let prevOvPt   = null;   // 前フレームのオーバーレイ座標
+
+/* オーバーレイキャンバスを viewer-wrap に合わせてリサイズ・初期化 */
+function resizeOverlay() {
+  const w = UI.viewerWrap.clientWidth;
+  const h = UI.viewerWrap.clientHeight;
+  UI.drawOverlay.width  = w;
+  UI.drawOverlay.height = h;
+  UI.drawOverlay.style.width  = w + 'px';
+  UI.drawOverlay.style.height = h + 'px';
+  overlayCtx = UI.drawOverlay.getContext('2d');
 }
 
-/* 描画オーバーレイでイベントを受け取る（スクロール干渉を完全排除） */
-UI.drawOverlay.addEventListener('mousedown',  startDraw);
-UI.drawOverlay.addEventListener('touchstart', startDraw, { passive: false });
-UI.drawOverlay.addEventListener('mousemove',  moveDraw);
-UI.drawOverlay.addEventListener('touchmove',  moveDraw, { passive: false });
-UI.drawOverlay.addEventListener('mouseup',    endDraw);
-UI.drawOverlay.addEventListener('touchend',   endDraw);
-UI.drawOverlay.addEventListener('touchcancel',endDraw);
+/* オーバーレイ上の座標（CSS px、viewerWrap起点）*/
+function overlayPt(e) {
+  const r = UI.viewerWrap.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
 
-function startDraw(e) {
+/* overlayPt → annCanvas座標系に変換 */
+function toCanvasXY(clientX, clientY) {
+  const r  = UI.annCanvas.getBoundingClientRect();
+  const sx = (UI.annCanvas.width  || 1) / (r.width  || 1);
+  const sy = (UI.annCanvas.height || 1) / (r.height || 1);
+  return [(clientX - r.left) * sx, (clientY - r.top) * sy];
+}
+
+/* オーバーレイ上のストローク太さ（annCanvas px → overlay CSS px に変換）*/
+function overlayLineWidth(w) {
+  const r = UI.annCanvas.getBoundingClientRect();
+  return w * (r.width || 1) / (UI.annCanvas.width || 1);
+}
+
+/* オーバーレイに描くスタイル設定 */
+function applyOverlayStyle(color, width, isMarker) {
+  if (isMarker) {
+    overlayCtx.globalAlpha = 0.35;
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth   = overlayLineWidth(width * 4);
+    overlayCtx.lineCap     = 'square';
+    overlayCtx.lineJoin    = 'square';
+  } else {
+    overlayCtx.globalAlpha = 1.0;
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth   = overlayLineWidth(width);
+    overlayCtx.lineCap     = 'round';
+    overlayCtx.lineJoin    = 'round';
+  }
+}
+
+UI.drawOverlay.addEventListener('pointerdown', e => {
   if (S.annMode !== 'draw' && S.annMode !== 'eraser') return;
   e.preventDefault();
-  drawing = true;
-  drawPts = [];
-  const [x, y] = canvasXY(e);
-  drawPts.push([x, y]);
-}
+  UI.drawOverlay.setPointerCapture(e.pointerId);
+  drawing  = true;
+  drawPts  = [];
+  prevOvPt = null;
+  overlayCtx && overlayCtx.clearRect(0, 0, UI.drawOverlay.width, UI.drawOverlay.height);
+  const pt = overlayPt(e);
+  prevOvPt = pt;
+  drawPts.push(toCanvasXY(e.clientX, e.clientY));
+}, { passive: false });
 
-function moveDraw(e) {
+UI.drawOverlay.addEventListener('pointermove', e => {
   if (!drawing) return;
   e.preventDefault();
-  const [x, y] = canvasXY(e);
-  drawPts.push([x, y]);
+  const pt = overlayPt(e);
+  drawPts.push(toCanvasXY(e.clientX, e.clientY));
 
   if (eraserMode) {
-    eraseAtPoint(x, y);
-  } else {
-    if (drawPts.length >= 2) {
-      const prev = drawPts[drawPts.length - 2];
-      applyStrokeStyle(annCtx, drawColor, drawWidth, drawMarker);
-      annCtx.beginPath();
-      annCtx.moveTo(prev[0], prev[1]);
-      annCtx.lineTo(x, y);
-      annCtx.stroke();
-    }
+    // 消しゴム: annCanvasから消去
+    const [ax, ay] = toCanvasXY(e.clientX, e.clientY);
+    eraseAtPoint(ax, ay);
+    // オーバーレイに消しゴムカーソル表示
+    overlayCtx.clearRect(0, 0, UI.drawOverlay.width, UI.drawOverlay.height);
+    overlayCtx.strokeStyle = 'rgba(255,255,255,0.8)';
+    overlayCtx.lineWidth   = 2;
+    overlayCtx.beginPath();
+    overlayCtx.arc(pt[0], pt[1], 18, 0, Math.PI * 2);
+    overlayCtx.stroke();
+  } else if (prevOvPt) {
+    // ペン/マーカー: オーバーレイキャンバスに直接描画（必ず見える）
+    applyOverlayStyle(drawColor, drawWidth, drawMarker);
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(prevOvPt[0], prevOvPt[1]);
+    overlayCtx.lineTo(pt[0], pt[1]);
+    overlayCtx.stroke();
+    overlayCtx.globalAlpha = 1.0;
   }
-}
+  prevOvPt = pt;
+}, { passive: false });
 
-function endDraw(e) {
+UI.drawOverlay.addEventListener('pointerup', e => {
   if (!drawing) return;
-  drawing = false;
+  drawing  = false;
+  prevOvPt = null;
+  // オーバーレイをクリア
+  overlayCtx && overlayCtx.clearRect(0, 0, UI.drawOverlay.width, UI.drawOverlay.height);
+  // annCanvasにストロークを確定・再描画
   if (!eraserMode && drawPts.length >= 2) {
     saveDrawingPath(drawPts, drawColor, drawWidth, drawMarker);
-    // マーカーはストローク完了後に再描画（半透明を正確に重ねるため）
-    if (drawMarker) restoreDrawings();
   }
-}
+  restoreDrawings();   // 保存済み全ストロークをannCanvasに描画
+});
+
+UI.drawOverlay.addEventListener('pointercancel', () => {
+  drawing  = false;
+  prevOvPt = null;
+  overlayCtx && overlayCtx.clearRect(0, 0, UI.drawOverlay.width, UI.drawOverlay.height);
+});
 
 function applyStrokeStyle(ctx, color, width, isMarker) {
   if (isMarker) {
