@@ -28,7 +28,7 @@ const UI = {
   sidebarTab:     $('sidebar-tab'),
   fileTree:       $('file-tree'),
   btnRefresh:     $('btn-refresh'),
-  btnPrev:        $('btn-prev'),
+  btnPrev:        $('btn-prev'),        // コントロールバー内
   btnNext:        $('btn-next'),
   pageIndicator:  $('page-indicator'),
   btnZoomIn:      $('btn-zoom-in'),
@@ -232,13 +232,11 @@ async function openFile(fileId, name, mime) {
 
   showLoading('ファイルを開いています…');
   try {
-    if (isPDF(mime))         await openPDF(fileId);
-    else                     openIframe(`https://drive.google.com/file/d/${fileId}/preview`);
+    if (isPDF(mime)) await openPDF(fileId);
+    else             openIframe(`https://drive.google.com/file/d/${fileId}/preview`);
     broadcastState();
   } catch(e) {
     showToast('エラー: ' + e.message);
-    // PDFのDLに失敗した場合もiframeで代替表示
-    openIframe(`https://drive.google.com/file/d/${fileId}/preview`);
   } finally {
     hideLoading();
   }
@@ -246,15 +244,22 @@ async function openFile(fileId, name, mime) {
 
 async function openPDF(fileId) {
   showLoading('PDFを読み込み中…');
-  const buf    = await fetchFileBuffer(fileId);
-  S.pdfDoc     = await pdfjsLib.getDocument({ data: buf }).promise;
-  S.totalPages = S.pdfDoc.numPages;
-  S.page       = 1;
-  UI.pdfScroll.style.display    = 'flex';
-  UI.iframeViewer.style.display = 'none';
-  await renderPage(S.page);
-  updatePageUI();
-  generateThumbnails();
+  try {
+    const buf    = await fetchFileBuffer(fileId);
+    S.pdfDoc     = await pdfjsLib.getDocument({ data: buf }).promise;
+    S.totalPages = S.pdfDoc.numPages;
+    S.page       = 1;
+    UI.pdfScroll.style.display    = 'flex';
+    UI.iframeViewer.style.display = 'none';
+    await renderPage(S.page);
+    updatePageUI();
+    generateThumbnails();
+  } catch(e) {
+    // APIキーでDL失敗 → Googleビューアで表示（ページ操作は不可）
+    console.warn('PDF.js読み込み失敗、iframeで代替表示:', e.message);
+    openIframe(`https://drive.google.com/file/d/${fileId}/preview`);
+    showToast('⚠ PDFをビューアで表示しています（フォルダの公開設定を確認してください）', 5000);
+  }
 }
 
 function openIframe(url) {
@@ -461,19 +466,45 @@ function leaveSession(silent = false) {
 }
 
 /* ── プロジェクタ出力 ── */
+let projMonitor = null;  // ウィンドウ監視タイマー
+
+function stopProjector() {
+  clearInterval(projMonitor);
+  projMonitor = null;
+  S.projWin = null;
+  UI.badgeProjector.style.display = 'none';
+  UI.btnProjector.classList.remove('active');
+}
+
 UI.btnProjector.addEventListener('click', () => {
-  if (S.projWin && !S.projWin.closed) {
-    S.projWin.close(); S.projWin = null;
-    UI.badgeProjector.style.display = 'none';
-    UI.btnProjector.classList.remove('active');
-    showToast('プロジェクタを閉じました');
-  } else {
-    S.projWin = window.open('projector.html', 'projector', 'width=1280,height=720,menubar=no,toolbar=no');
-    UI.badgeProjector.style.display = 'block';
-    UI.btnProjector.classList.add('active');
-    showToast('プロジェクタウィンドウを開きました');
-    setTimeout(() => broadcastState(), 1000);
+  // ボタンがアクティブ（緑）= 出力中 → 終了
+  if (UI.btnProjector.classList.contains('active')) {
+    if (S.projWin && !S.projWin.closed) S.projWin.close();
+    stopProjector();
+    showToast('プロジェクタ出力を終了しました');
+    return;
   }
+
+  // 非アクティブ → 新しいウィンドウを開く
+  S.projWin = window.open('projector.html', '', 'width=1280,height=720,menubar=no,toolbar=no,location=no');
+  if (!S.projWin) {
+    showToast('⚠ ポップアップがブロックされました。ブラウザの設定を確認してください', 4000);
+    return;
+  }
+
+  UI.badgeProjector.style.display = 'block';
+  UI.btnProjector.classList.add('active');
+  showToast('プロジェクタウィンドウを開きました');
+  setTimeout(() => broadcastState(), 800);
+
+  // ウィンドウが手動で閉じられても自動検知してリセット
+  clearInterval(projMonitor);
+  projMonitor = setInterval(() => {
+    if (S.projWin && S.projWin.closed) {
+      stopProjector();
+      showToast('プロジェクタウィンドウが閉じられました');
+    }
+  }, 1000);
 });
 
 /* ── Firebase ── */
