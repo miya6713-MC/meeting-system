@@ -5,6 +5,7 @@
 
 /* ── グローバル状態 ── */
 const S = {
+  driveToken: null,          // Google Drive OAuthトークン（バックグラウンド取得）
   fileId: null, fileName: '', mimeType: '',
   page: 1, totalPages: 1,
   pdfDoc: null, renderTask: null, scale: 1.4,
@@ -35,6 +36,8 @@ const UI = {
   btnZoomOut:     $('btn-zoom-out'),
   btnFit:         $('btn-fit'),
   btnThumbs:      $('btn-thumbs'),
+  driveConnectBar: $('drive-connect-bar'),
+  btnDriveConnect: $('btn-drive-connect'),
   viewerWrap:     $('viewer-wrap'),
   pdfScroll:      $('pdf-scroll'),
   pdfCanvas:      $('pdf-canvas'),
@@ -91,6 +94,42 @@ const isOffice = m => m.includes('officedocument') || m.includes('ms-') || m.inc
 const isVideo  = m => m.startsWith('video/');
 const isGSuite = m => m.includes('google-apps');
 
+/* ── Google Drive OAuth（バックグラウンド・ログインとは独立） ── */
+let driveTokenClient = null;
+
+function initDriveOAuth() {
+  if (!CONFIG.googleClientId || typeof google === 'undefined') return;
+  try {
+    driveTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.googleClientId,
+      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      callback: resp => {
+        if (resp.access_token) {
+          S.driveToken = resp.access_token;
+          UI.driveConnectBar.style.display = 'none';
+          showToast('✅ Google Drive に接続しました。PDFのページ操作が有効です');
+          // 接続後にファイルツリーを再読み込み
+          const folder = AUTH.getFolder();
+          if (folder.id) loadTree(folder.id, UI.fileTree, 0);
+        }
+      },
+    });
+    // 無言でトークン取得を試みる（ユーザー操作不要・過去に許可済みの場合）
+    driveTokenClient.requestAccessToken({ prompt: '' });
+  } catch(e) {
+    console.warn('Drive OAuth初期化失敗:', e);
+  }
+}
+
+function connectDrive() {
+  if (!driveTokenClient) {
+    showToast('⚠ Google Drive接続の設定が不完全です（config.jsを確認）', 4000);
+    return;
+  }
+  // ユーザーに許可を求める（初回または期限切れ）
+  driveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
 /* ── 認証・ログイン ── */
 function startApp(session) {
   UI.loginScreen.style.display = 'none';
@@ -101,6 +140,19 @@ function startApp(session) {
   initPDFJS();
   initBroadcastChannel();
   initFirebase();
+
+  // Drive接続ボタン
+  UI.btnDriveConnect.addEventListener('click', connectDrive);
+
+  // GISライブラリ読み込み後にOAuth初期化
+  if (typeof google !== 'undefined' && google.accounts) {
+    initDriveOAuth();
+  } else {
+    window.addEventListener('load', () => {
+      setTimeout(initDriveOAuth, 500);
+    });
+  }
+
   const folder = AUTH.getFolder();
   if (folder.id) {
     loadTree(folder.id, UI.fileTree, 0);
@@ -145,22 +197,38 @@ UI.btnRefresh.addEventListener('click', () => {
   if (folder.id) loadTree(folder.id, UI.fileTree, 0);
 });
 
-/* ── Google Drive API（APIキーのみ・OAuth不要） ── */
+/* ── Google Drive API（OAuthトークン優先・なければAPIキー） ── */
+function driveHeaders() {
+  // OAuthトークンがあればそれを優先、なければAPIキーを使用
+  if (S.driveToken) return { Authorization: 'Bearer ' + S.driveToken };
+  return null; // APIキーはURLパラメータで渡す
+}
+
+function driveUrl(path) {
+  const base = 'https://www.googleapis.com/drive/v3/' + path;
+  return S.driveToken ? base : base + (base.includes('?') ? '&' : '?') + 'key=' + CONFIG.googleApiKey;
+}
+
 async function driveListFolder(folderId) {
   const q   = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-  const url = `https://www.googleapis.com/drive/v3/files?q=${q}` +
-              `&fields=files(id,name,mimeType)&orderBy=name&pageSize=200` +
-              `&key=${CONFIG.googleApiKey}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('フォルダ一覧の取得に失敗しました（フォルダが公開されているか確認してください）');
+  const url = driveUrl(`files?q=${q}&fields=files(id,name,mimeType)&orderBy=name&pageSize=200`);
+  const headers = driveHeaders();
+  const res = await fetch(url, headers ? { headers } : {});
+  if (!res.ok) {
+    // 未接続の場合はDrive接続バナーを表示
+    if (!S.driveToken) UI.driveConnectBar.style.display = 'block';
+    throw new Error('フォルダ一覧の取得に失敗しました。「Google Drive に接続」ボタンを押してください');
+  }
+  UI.driveConnectBar.style.display = 'none';
   const data = await res.json();
   return data.files || [];
 }
 
 async function fetchFileBuffer(fileId) {
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${CONFIG.googleApiKey}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('ファイル取得失敗（ファイルが公開されているか確認してください）');
+  const url = driveUrl(`files/${fileId}?alt=media`);
+  const headers = driveHeaders();
+  const res = await fetch(url, headers ? { headers } : {});
+  if (!res.ok) throw new Error('ファイル取得失敗');
   return res.arrayBuffer();
 }
 
@@ -255,10 +323,13 @@ async function openPDF(fileId) {
     updatePageUI();
     generateThumbnails();
   } catch(e) {
-    // APIキーでDL失敗 → Googleビューアで表示（ページ操作は不可）
+    // Drive未接続 → iframeで代替表示しつつ接続を促す
     console.warn('PDF.js読み込み失敗、iframeで代替表示:', e.message);
     openIframe(`https://drive.google.com/file/d/${fileId}/preview`);
-    showToast('⚠ PDFをビューアで表示しています（フォルダの公開設定を確認してください）', 5000);
+    if (!S.driveToken) {
+      UI.driveConnectBar.style.display = 'block';
+      showToast('⚠ 左の「Google Drive に接続」を押すとページ操作が有効になります', 5000);
+    }
   }
 }
 
