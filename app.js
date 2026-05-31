@@ -67,6 +67,7 @@ const UI = {
   pointerDot:     $('pointer-dot'),
   thumbPanel:     $('thumb-panel'),
   annToolbar:     $('ann-toolbar'),
+  drawOverlay:    $('draw-overlay'),
   btnDraw:        $('btn-draw'),
   btnEraser:      $('btn-eraser'),
   btnSticky:      $('btn-sticky'),
@@ -509,55 +510,44 @@ function setActiveTool(activeBtn) {
   if (activeBtn) activeBtn.classList.add('active');
 }
 
-/* スクロール制御: 描画中はスクロールを止める */
-function lockScroll() {
-  UI.pdfScroll.style.overflow    = 'hidden';
-  UI.pdfScroll.style.touchAction = 'none';
-  UI.canvasWrap.style.touchAction = 'none';
+/* オーバーレイ表示/非表示 */
+function showOverlay(eraserCursor = false) {
+  UI.drawOverlay.classList.add('active');
+  UI.drawOverlay.classList.toggle('eraser-mode', eraserCursor);
 }
-function unlockScroll() {
-  UI.pdfScroll.style.overflow    = 'auto';
-  UI.pdfScroll.style.touchAction = 'auto';
-  UI.canvasWrap.style.touchAction = 'auto';
+function hideOverlay() {
+  UI.drawOverlay.classList.remove('active', 'eraser-mode');
 }
 
 function startDrawMode() {
   S.annMode  = 'draw';
   eraserMode = false;
   drawMarker = false;
-  UI.annCanvas.classList.add('draw-mode');
-  UI.annCanvas.style.cursor = 'crosshair';
-  lockScroll();
+  showOverlay(false);
   setActiveTool(document.getElementById('btn-draw'));
-  showToast('ペンモード：PDFの上をなぞって描画');
+  showToast('ペンモード ON — PDFをなぞって描画（もう一度タップで解除）');
 }
 function startMarkerMode() {
   S.annMode  = 'draw';
   eraserMode = false;
   drawMarker = true;
-  UI.annCanvas.classList.add('draw-mode');
-  UI.annCanvas.style.cursor = 'crosshair';
-  lockScroll();
+  showOverlay(false);
   setActiveTool(document.getElementById('btn-marker'));
-  showToast('マーカーモード：PDFの上をなぞってハイライト');
+  showToast('マーカーモード ON — PDFをなぞってハイライト');
 }
 function startEraserMode() {
   S.annMode  = 'eraser';
   eraserMode = true;
   drawMarker = false;
-  UI.annCanvas.classList.add('draw-mode');
-  UI.annCanvas.style.cursor = 'cell';
-  lockScroll();
+  showOverlay(true);
   setActiveTool(document.getElementById('btn-eraser'));
-  showToast('消しゴムモード：なぞって消去');
+  showToast('消しゴムモード ON — なぞって消去');
 }
 function stopAnnMode() {
   S.annMode  = null;
   eraserMode = false;
   drawMarker = false;
-  UI.annCanvas.classList.remove('draw-mode');
-  UI.annCanvas.style.cursor = '';
-  unlockScroll();
+  hideOverlay();
   setActiveTool(null);
 }
 
@@ -578,12 +568,12 @@ function setSize(size) {
 }
 
 function canvasXY(e) {
-  // 常にannCanvasの座標系に変換（ラッパー経由のイベントも対応）
-  const rect    = UI.annCanvas.getBoundingClientRect();
+  // オーバーレイのタッチ → annCanvas座標系に変換
   const touch   = e.touches && e.touches[0] || e.changedTouches && e.changedTouches[0];
   const clientX = touch ? touch.clientX : e.clientX;
   const clientY = touch ? touch.clientY : e.clientY;
-  // キャンバスの実ピクセルとCSS表示サイズの比率（Retina対応）
+  const rect    = UI.annCanvas.getBoundingClientRect();
+  // キャンバスの実ピクセル / CSS表示サイズ（Retina / 拡大縮小対応）
   const scaleX  = (UI.annCanvas.width  || 1) / (rect.width  || 1);
   const scaleY  = (UI.annCanvas.height || 1) / (rect.height || 1);
   return [
@@ -592,15 +582,14 @@ function canvasXY(e) {
   ];
 }
 
-/* キャンバスとラッパー両方でイベントを受け取る（iPad対応） */
-[UI.annCanvas, UI.canvasWrap].forEach(el => {
-  el.addEventListener('mousedown',  startDraw);
-  el.addEventListener('touchstart', startDraw, { passive: false });
-  el.addEventListener('mousemove',  moveDraw);
-  el.addEventListener('touchmove',  moveDraw, { passive: false });
-  el.addEventListener('mouseup',    endDraw);
-  el.addEventListener('touchend',   endDraw);
-});
+/* 描画オーバーレイでイベントを受け取る（スクロール干渉を完全排除） */
+UI.drawOverlay.addEventListener('mousedown',  startDraw);
+UI.drawOverlay.addEventListener('touchstart', startDraw, { passive: false });
+UI.drawOverlay.addEventListener('mousemove',  moveDraw);
+UI.drawOverlay.addEventListener('touchmove',  moveDraw, { passive: false });
+UI.drawOverlay.addEventListener('mouseup',    endDraw);
+UI.drawOverlay.addEventListener('touchend',   endDraw);
+UI.drawOverlay.addEventListener('touchcancel',endDraw);
 
 function startDraw(e) {
   if (S.annMode !== 'draw' && S.annMode !== 'eraser') return;

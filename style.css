@@ -281,6 +281,24 @@ html, body {
   top: 0; left: 0;
 }
 
+/* 描画オーバーレイ: 描画モード中に全面を覆いタッチを独占する */
+#draw-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 200;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: crosshair;
+}
+#draw-overlay.active {
+  display: block;
+}
+#draw-overlay.eraser-mode {
+  cursor: cell;
+}
+
 /* ポインターレイヤー */
 #pointer-layer {
   position: absolute;
