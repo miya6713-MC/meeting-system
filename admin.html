@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理画面 — 会議システム</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* 管理画面専用スタイル */
+    body { overflow: auto; }
+    #admin-wrap {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 0 0 40px; background: var(--bg-base);
+    }
+
+    /* 管理者ログイン */
+    #admin-login {
+      width: 100%; max-width: 400px; margin: 80px auto 0;
+    }
+
+    /* 管理画面本体 */
+    #admin-body { display: none; width: 100%; max-width: 720px; padding: 24px 16px; }
+
+    .admin-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 16px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 28px;
+    }
+    .admin-header h1 { font-size: 20px; font-weight: 700; flex: 1; }
+
+    /* セクションカード */
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px 24px; margin-bottom: 20px;
+    }
+    .card h2 {
+      font-size: 14px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px;
+    }
+
+    /* フォーム */
+    .form-row {
+      display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .form-row label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+    .form-row .f { flex: 1; min-width: 160px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 5px; }
+
+    input[type="text"], input[type="password"], input[type="url"] {
+      width: 100%; background: var(--bg-base); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 9px 12px; color: var(--text);
+      font-size: 14px; outline: none; -webkit-appearance: none;
+      -webkit-user-select: text; user-select: text;
+    }
+    input:focus { border-color: var(--accent); }
+
+    /* ユーザーリスト */
+    #user-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .user-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg-base); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 12px;
+    }
+    .user-row .uid { flex: 1; font-size: 13px; font-weight: 600; }
+    .user-row .upw { flex: 1; font-size: 12px; color: var(--text-muted); font-family: monospace; }
+
+    /* フォルダ表示 */
+    #current-folder {
+      background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px;
+      padding: 10px 14px; font-size: 13px; word-break: break-all; margin-bottom: 14px;
+      color: var(--text-muted);
+    }
+    #current-folder span { color: var(--accent); }
+
+    .msg { font-size: 12px; padding: 6px 10px; border-radius: 5px; margin-top: 8px; }
+    .msg.ok  { background: rgba(63,185,80,.15); color: var(--accent2); border: 1px solid var(--accent2); }
+    .msg.err { background: rgba(248,81,73,.15);  color: #f85149; border: 1px solid #f85149; }
+  </style>
+</head>
+<body>
+<div id="admin-wrap">
+
+  <!-- 管理者ログイン -->
+  <div id="admin-login" class="login-box">
+    <div class="login-icon">⚙️</div>
+    <h1 id="admin-login-title">管理画面</h1>
+    <div class="form-group">
+      <label>管理者ID</label>
+      <input type="text" id="al-id" placeholder="管理者IDを入力"
+             autocapitalize="none" autocorrect="off" spellcheck="false">
+    </div>
+    <div class="form-group">
+      <label>パスワード</label>
+      <input type="password" id="al-pass" placeholder="パスワードを入力">
+    </div>
+    <div id="al-error"></div>
+    <button class="btn primary login-btn" id="btn-al-login">ログイン</button>
+    <a href="index.html" class="admin-link">← 会議画面に戻る</a>
+  </div>
+
+  <!-- 管理画面本体 -->
+  <div id="admin-body">
+    <div class="admin-header">
+      <h1>⚙ 管理画面</h1>
+      <a href="index.html" class="btn">← 会議画面</a>
+      <button class="btn" id="btn-admin-logout">ログアウト</button>
+    </div>
+
+    <!-- Google Drive フォルダ設定 -->
+    <div class="card">
+      <h2>📁 Google Drive フォルダ設定</h2>
+      <div id="current-folder">現在のフォルダ：<span id="folder-display">未設定</span></div>
+      <div class="form-row">
+        <div class="f">
+          <label>Google Drive フォルダの URL または フォルダID</label>
+          <input type="url" id="folder-url"
+                 placeholder="https://drive.google.com/drive/folders/xxxx または フォルダID">
+        </div>
+        <button class="btn primary" id="btn-save-folder">保存</button>
+      </div>
+      <div id="folder-msg"></div>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+        ⚠ フォルダは Google Drive で「リンクを知っている全員が閲覧可」に設定してください
+      </p>
+    </div>
+
+    <!-- ユーザー管理 -->
+    <div class="card">
+      <h2>👥 ユーザー管理</h2>
+      <div id="user-list"></div>
+      <div class="form-row">
+        <div class="f">
+          <label>ユーザーID</label>
+          <input type="text" id="new-uid" placeholder="新しいID" autocapitalize="none" autocorrect="off">
+        </div>
+        <div class="f">
+          <label>パスワード</label>
+          <input type="password" id="new-upass" placeholder="パスワード">
+        </div>
+        <button class="btn success" id="btn-add-user">追加</button>
+      </div>
+      <div id="user-msg"></div>
+    </div>
+
+    <!-- 管理者アカウント変更 -->
+    <div class="card">
+      <h2>🔑 管理者アカウント変更</h2>
+      <div class="form-row">
+        <div class="f">
+          <label>新しい管理者ID</label>
+          <input type="text" id="new-admin-id" autocapitalize="none" autocorrect="off">
+        </div>
+        <div class="f">
+          <label>新しいパスワード</label>
+          <input type="password" id="new-admin-pass">
+        </div>
+        <button class="btn warn" id="btn-change-admin">変更</button>
+      </div>
+      <div id="admin-msg"></div>
+    </div>
+
+  </div><!-- /admin-body -->
+</div>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script>
+/* ── 管理者ログイン ── */
+function msg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+  el.textContent = text;
+  setTimeout(() => el.textContent = '', 4000);
+}
+
+document.getElementById('btn-al-login').addEventListener('click', () => {
+  const id   = document.getElementById('al-id').value.trim();
+  const pass = document.getElementById('al-pass').value;
+  const role = AUTH.verify(id, pass);
+  if (role === 'admin') {
+    AUTH.createSession('admin', id);
+    document.getElementById('admin-login').style.display = 'none';
+    document.getElementById('admin-body').style.display  = 'block';
+    loadAdmin();
+  } else {
+    document.getElementById('al-error').textContent = '管理者IDまたはパスワードが違います';
+  }
+});
+['al-id','al-pass'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-al-login').click();
+  });
+});
+
+document.getElementById('btn-admin-logout').addEventListener('click', () => {
+  AUTH.clearSession();
+  location.href = 'index.html';
+});
+
+/* セッションチェック */
+const s = AUTH.getSession();
+if (s?.role === 'admin') {
+  document.getElementById('admin-login').style.display = 'none';
+  document.getElementById('admin-body').style.display  = 'block';
+  loadAdmin();
+}
+
+/* ── 管理画面 ── */
+function loadAdmin() {
+  // タイトル
+  document.title = '管理画面 — ' + CONFIG.appName;
+  document.getElementById('admin-login-title').textContent = CONFIG.appName;
+
+  // フォルダ表示
+  refreshFolderDisplay();
+
+  // ユーザー一覧
+  refreshUserList();
+}
+
+function refreshFolderDisplay() {
+  const f = AUTH.getFolder();
+  document.getElementById('folder-display').textContent =
+    f.id ? (f.url || f.id) : '未設定';
+  document.getElementById('folder-url').value = f.url || '';
+}
+
+function refreshUserList() {
+  const ul   = document.getElementById('user-list');
+  const users = AUTH.getUsers();
+  ul.innerHTML = '';
+  if (!users.length) {
+    ul.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">ユーザーなし（管理者のみ）</div>';
+    return;
+  }
+  users.forEach(u => {
+    const row = document.createElement('div');
+    row.className = 'user-row';
+    row.innerHTML = `
+      <span class="uid">${esc(u.id)}</span>
+      <span class="upw">${'●'.repeat(Math.min(u.pass.length, 8))}</span>
+      <button class="btn" data-uid="${esc(u.id)}" id="btn-del-${esc(u.id)}">削除</button>
+    `;
+    row.querySelector('button').addEventListener('click', () => {
+      if (confirm(`ユーザー「${u.id}」を削除しますか？`)) {
+        AUTH.removeUser(u.id);
+        refreshUserList();
+      }
+    });
+    ul.appendChild(row);
+  });
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* フォルダ保存 */
+document.getElementById('btn-save-folder').addEventListener('click', () => {
+  const url = document.getElementById('folder-url').value.trim();
+  if (!url) { msg('folder-msg','URLまたはフォルダIDを入力してください',false); return; }
+  const id = AUTH.setFolder(url);
+  refreshFolderDisplay();
+  msg('folder-msg', `フォルダID「${id}」を設定しました`, true);
+});
+
+/* ユーザー追加 */
+document.getElementById('btn-add-user').addEventListener('click', () => {
+  const id   = document.getElementById('new-uid').value.trim();
+  const pass = document.getElementById('new-upass').value;
+  if (!id || !pass) { msg('user-msg','IDとパスワードを入力してください',false); return; }
+  if (AUTH.addUser(id, pass)) {
+    document.getElementById('new-uid').value   = '';
+    document.getElementById('new-upass').value = '';
+    refreshUserList();
+    msg('user-msg', `ユーザー「${id}」を追加しました`, true);
+  } else {
+    msg('user-msg', `「${id}」はすでに存在します`, false);
+  }
+});
+
+/* 管理者変更 */
+document.getElementById('btn-change-admin').addEventListener('click', () => {
+  const newId   = document.getElementById('new-admin-id').value.trim();
+  const newPass = document.getElementById('new-admin-pass').value;
+  if (!newId || !newPass) { msg('admin-msg','IDとパスワードを両方入力してください',false); return; }
+  AUTH.changeAdminId(newId);
+  AUTH.changeAdminPw(newPass);
+  AUTH.createSession('admin', newId);
+  document.getElementById('new-admin-id').value   = '';
+  document.getElementById('new-admin-pass').value = '';
+  msg('admin-msg', '管理者アカウントを変更しました', true);
+});
+</script>
+</body>
+</html>
