@@ -25,6 +25,7 @@ const UI = {
   sidebarTab:      $('sidebar-tab'),
   fileTree:        $('file-tree'),
   btnRefresh:      $('btn-refresh'),
+  btnSidebarToggle:$('btn-sidebar-toggle'),
   btnThumbs:       $('btn-thumbs'),
   pageIndicator:   $('page-indicator'),
   viewerWrap:      $('viewer-wrap'),
@@ -88,6 +89,7 @@ function startApp() {
   $('login-title').textContent   = CONFIG.appName;
   initBroadcastChannel();
   initFirebase();
+  UI.btnSidebarToggle.classList.add('active'); // 初期状態はサイドバー表示
   const folder = AUTH.getFolder();
   if (folder.id) {
     loadTree(folder.id, UI.fileTree, 0);
@@ -231,8 +233,10 @@ function toggleSidebar(force) {
   S.sidebarOpen = force !== undefined ? force : !S.sidebarOpen;
   UI.sidebar.classList.toggle('hidden', !S.sidebarOpen);
   UI.sidebarTab.textContent = S.sidebarOpen ? '◀' : '▶';
+  UI.btnSidebarToggle.classList.toggle('active', S.sidebarOpen);
 }
 UI.sidebarTab.addEventListener('click', e => { e.stopPropagation(); toggleSidebar(); });
+UI.btnSidebarToggle.addEventListener('click', () => toggleSidebar());
 
 /* ── サムネイル（ファイル一覧パネル） ── */
 UI.btnThumbs.addEventListener('click', () => {
