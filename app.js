@@ -299,7 +299,7 @@ async function collectAllFiles(folderId) {
   } catch(e) { /* サイレント失敗 */ }
 }
 
-// ② 各PDFの本文テキストを抽出（重い処理・逐次実行）
+// ② 各PDFの本文テキストを抽出（並列・3件ずつ）
 async function extractAllText() {
   const pdfs = S.allFiles.filter(f => isPDF(f.mimeType) && !f.text);
   S.indexTotal = pdfs.length;
@@ -308,7 +308,7 @@ async function extractAllText() {
   let ok = 0, ng = 0, lastErr = '';
   updateIndexStatus();
 
-  for (const f of pdfs) {
+  async function processOne(f) {
     try {
       const buf = await fetchFileBuffer(f.id);
       const doc = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -329,16 +329,22 @@ async function extractAllText() {
     S.indexDone++;
     updateIndexStatus();
   }
+
+  // 3件ずつ並列処理
+  const CONCURRENCY = 3;
+  for (let i = 0; i < pdfs.length; i += CONCURRENCY) {
+    await Promise.all(pdfs.slice(i, i + CONCURRENCY).map(processOne));
+  }
+
   S.indexing = false;
   updateIndexStatus();
 
-  // 結果を通知
   if (ng > 0 && ok === 0) {
-    showToast(`⚠ 本文の読み込みに全て失敗（${ng}件）: ${lastErr}`, 6000);
+    showToast(`⚠ 本文索引が全失敗（${ng}件）原因: ${lastErr}`, 8000);
   } else if (ng > 0) {
-    showToast(`本文索引: 成功${ok}件 / 失敗${ng}件`, 4000);
+    showToast(`本文索引: 成功${ok}件 / 失敗${ng}件（${lastErr}）`, 5000);
   } else if (ok > 0) {
-    showToast(`✅ ${ok}件の本文を索引しました。全文検索が可能です`, 3500);
+    showToast(`✅ ${ok}件の本文を索引しました`, 3000);
   }
 }
 
@@ -362,12 +368,18 @@ async function buildIndex(folderId) {
   extractAllText();                 // 本文抽出はバックグラウンド（awaitしない）
 }
 
-// Drive ファイルをダウンロード（APIキー・公開ファイル）
+// Drive ファイルをダウンロード（APIキー・公開ファイル・15秒タイムアウト）
 async function fetchFileBuffer(fileId) {
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${CONFIG.googleApiKey}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('DL失敗');
-  return res.arrayBuffer();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.arrayBuffer();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* ── Google Drive API（APIキー使用・公開フォルダのみ） ── */
