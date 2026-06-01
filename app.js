@@ -327,7 +327,9 @@ async function buildIndex(folderId) {
   S.allFiles = [];
   await collectAllFiles(folderId);  // ファイル名を即座に揃える
   const pdfCount = S.allFiles.filter(f => isPDF(f.mimeType)).length;
-  showToast(`索引開始: 全${S.allFiles.length}件 / PDF ${pdfCount}件`, 4000);
+  // デバッグ: 最初の3件の実際のmimeTypeを表示
+  const sample = S.allFiles.slice(0, 3).map(f => `${f.name}=[${f.mimeType}]`).join(' / ');
+  showToast(`全${S.allFiles.length}件/PDF${pdfCount}件 例: ${sample}`, 9000);
   extractAllText();                 // 本文抽出はバックグラウンド（awaitしない）
 }
 
