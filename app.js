@@ -4,9 +4,7 @@
 'use strict';
 
 const S = {
-  allFiles: [],              // 全ファイル（検索用）: {id, name, mimeType, icon, text}
-  indexing: false,           // インデックス作成中フラグ
-  indexDone: 0, indexTotal: 0,
+  allFiles: [],              // 全ファイル（検索用）: {id, name, mimeType, icon}
   fileId: null, fileName: '', mimeType: '',
   sidebarOpen: true, thumbsOpen: false,
   isPresenter: false, isViewer: false, sessionId: null,
@@ -86,7 +84,6 @@ const getMime = name => {
 };
 const isFolder = m => m.includes('folder');
 const isVideo  = m => m.startsWith('video/');
-const isPDF    = m => m === 'application/pdf';
 
 /* ── ログイン ── */
 function startApp() {
@@ -99,17 +96,11 @@ function startApp() {
   initBroadcastChannel();
   initFirebase();
   UI.btnSidebarToggle.classList.add('active'); // 初期状態はサイドバー表示
-  // PDF.js 初期化（本文抽出用）
-  if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
 
   const folder = AUTH.getFolder();
   if (folder.id) {
     loadTree(folder.id, UI.fileTree, 0);
-    // バックグラウンドで全文インデックスを構築
-    buildIndex(folder.id);
+    buildIndex(folder.id);   // 検索用にファイル名を再帰収集
   } else {
     UI.fileTree.innerHTML =
       '<div style="padding:12px 14px;font-size:12px;color:#f85149;">' +
@@ -199,11 +190,8 @@ function doSearch(query) {
     return;
   }
 
-  // ファイル名 OR 本文テキストにマッチ
-  const results = S.allFiles.filter(f =>
-    f.name.toLowerCase().includes(q) ||
-    (f.text && f.text.toLowerCase().includes(q))
-  );
+  // ファイル名にマッチ
+  const results = S.allFiles.filter(f => f.name.toLowerCase().includes(q));
   renderSearchResults(results, query);
 }
 
@@ -224,16 +212,11 @@ function renderSearchResults(files, query) {
   files.forEach(file => {
     const item = document.createElement('div');
     item.className = 'search-result-item' + (file.id === S.fileId ? ' active' : '');
-
-    // 本文スニペット（マッチ箇所の前後を抜粋）
-    const snippet = makeSnippet(file.text, query);
-
     item.innerHTML =
       `<div class="sr-row">` +
         `<span class="sr-icon">${file.icon || '📄'}</span>` +
         `<span class="sr-name" title="${esc(file.name)}">${highlight(esc(file.name), query)}</span>` +
-      `</div>` +
-      (snippet ? `<div class="sr-snippet">${snippet}</div>` : '');
+      `</div>`;
 
     item.addEventListener('click', () => {
       UI.searchResults.querySelectorAll('.search-result-item')
@@ -245,38 +228,18 @@ function renderSearchResults(files, query) {
   });
 }
 
-// 本文からマッチ箇所の前後を抜粋してハイライト（複数箇所対応）
-function makeSnippet(text, query) {
-  if (!text) return '';
-  const lower = text.toLowerCase();
-  const q     = query.toLowerCase();
-  let pos = lower.indexOf(q);
-  if (pos === -1) return '';   // 本文に無い（ファイル名のみマッチ）
-
-  const snippets = [];
-  let count = 0;
-  while (pos !== -1 && count < 3) {       // 最大3箇所
-    const start = Math.max(0, pos - 25);
-    const end   = Math.min(text.length, pos + query.length + 35);
-    let frag = text.slice(start, end).replace(/\s+/g, ' ').trim();
-    if (start > 0) frag = '…' + frag;
-    if (end < text.length) frag = frag + '…';
-    snippets.push(highlight(esc(frag), query));
-    count++;
-    pos = lower.indexOf(q, pos + query.length);
-  }
-  return snippets.join('<br>');
-}
-
 // 検索キーワードをハイライト
 function highlight(text, query) {
   const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
   return text.replace(re, '<mark>$1</mark>');
 }
 
-/* ── 検索インデックスをバックグラウンドで全再帰構築 ── */
+/* ── 検索用インデックス（全ファイル名を再帰収集） ── */
+async function buildIndex(folderId) {
+  S.allFiles = [];
+  await collectAllFiles(folderId);
+}
 
-// ① まず全ファイルを再帰列挙（ファイル名のみ・高速）
 async function collectAllFiles(folderId) {
   try {
     const files = await driveListFolder(folderId);
@@ -292,94 +255,11 @@ async function collectAllFiles(folderId) {
             : mime.includes('spreadsheet') || mime.includes('excel') ? '📊'
             : mime.includes('word') || mime.includes('doc') ? '📝'
             : '📄';
-          S.allFiles.push({ id: rf.id, name: rf.name, mimeType: mime, icon, text: '' });
+          S.allFiles.push({ id: rf.id, name: rf.name, mimeType: mime, icon });
         }
       }
     }
   } catch(e) { /* サイレント失敗 */ }
-}
-
-// ② 各PDFの本文テキストを抽出（並列・3件ずつ）
-async function extractAllText() {
-  const pdfs = S.allFiles.filter(f => isPDF(f.mimeType) && !f.text);
-  S.indexTotal = pdfs.length;
-  S.indexDone  = 0;
-  S.indexing   = true;
-  let ok = 0, ng = 0, lastErr = '';
-  updateIndexStatus();
-
-  async function processOne(f) {
-    try {
-      const buf = await fetchFileBuffer(f.id);
-      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-      let text = '';
-      const maxPages = Math.min(doc.numPages, 30);
-      for (let p = 1; p <= maxPages; p++) {
-        const page = await doc.getPage(p);
-        const tc   = await page.getTextContent();
-        text += tc.items.map(i => i.str).join(' ') + ' ';
-      }
-      f.text = text || ' ';
-      ok++;
-    } catch(e) {
-      f.text = '';
-      ng++;
-      lastErr = e.message;
-    }
-    S.indexDone++;
-    updateIndexStatus();
-  }
-
-  // 3件ずつ並列処理
-  const CONCURRENCY = 3;
-  for (let i = 0; i < pdfs.length; i += CONCURRENCY) {
-    await Promise.all(pdfs.slice(i, i + CONCURRENCY).map(processOne));
-  }
-
-  S.indexing = false;
-  updateIndexStatus();
-
-  if (ng > 0 && ok === 0) {
-    showToast(`⚠ 本文索引が全失敗（${ng}件）原因: ${lastErr}`, 8000);
-  } else if (ng > 0) {
-    showToast(`本文索引: 成功${ok}件 / 失敗${ng}件（${lastErr}）`, 5000);
-  } else if (ok > 0) {
-    showToast(`✅ ${ok}件の本文を索引しました`, 3000);
-  }
-}
-
-function updateIndexStatus() {
-  const el = document.getElementById('index-status');
-  if (!el) return;
-  if (S.indexing) {
-    el.style.display = 'block';
-    el.textContent = `🔍 本文を読み込み中… ${S.indexDone}/${S.indexTotal}`;
-  } else {
-    el.style.display = 'none';
-  }
-}
-
-// ③ 統合インデックス構築
-async function buildIndex(folderId) {
-  S.allFiles = [];
-  await collectAllFiles(folderId);  // ファイル名を即座に揃える
-  const pdfCount = S.allFiles.filter(f => isPDF(f.mimeType)).length;
-  if (pdfCount > 0) showToast(`${pdfCount}件のPDF本文を索引します…`, 3000);
-  extractAllText();                 // 本文抽出はバックグラウンド（awaitしない）
-}
-
-// Drive ファイルをダウンロード（APIキー・公開ファイル・15秒タイムアウト）
-async function fetchFileBuffer(fileId) {
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${CONFIG.googleApiKey}`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.arrayBuffer();
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /* ── Google Drive API（APIキー使用・公開フォルダのみ） ── */
