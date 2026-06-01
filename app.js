@@ -93,6 +93,8 @@ function startApp() {
   document.title = CONFIG.appName;
   $('app-title-bar').textContent = CONFIG.appName;
   $('login-title').textContent   = CONFIG.appName;
+  // ロゴ（タイトル）クリックで再読み込み
+  $('app-title-bar').addEventListener('click', () => location.reload());
   initBroadcastChannel();
   initFirebase();
   UI.btnSidebarToggle.classList.add('active'); // 初期状態はサイドバー表示
