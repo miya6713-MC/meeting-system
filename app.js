@@ -224,9 +224,16 @@ function renderSearchResults(files, query) {
   files.forEach(file => {
     const item = document.createElement('div');
     item.className = 'search-result-item' + (file.id === S.fileId ? ' active' : '');
+
+    // 本文スニペット（マッチ箇所の前後を抜粋）
+    const snippet = makeSnippet(file.text, query);
+
     item.innerHTML =
-      `<span class="sr-icon">${file.icon || '📄'}</span>` +
-      `<span class="sr-name" title="${esc(file.name)}">${highlight(esc(file.name), query)}</span>`;
+      `<div class="sr-row">` +
+        `<span class="sr-icon">${file.icon || '📄'}</span>` +
+        `<span class="sr-name" title="${esc(file.name)}">${highlight(esc(file.name), query)}</span>` +
+      `</div>` +
+      (snippet ? `<div class="sr-snippet">${snippet}</div>` : '');
 
     item.addEventListener('click', () => {
       UI.searchResults.querySelectorAll('.search-result-item')
@@ -238,10 +245,33 @@ function renderSearchResults(files, query) {
   });
 }
 
+// 本文からマッチ箇所の前後を抜粋してハイライト（複数箇所対応）
+function makeSnippet(text, query) {
+  if (!text) return '';
+  const lower = text.toLowerCase();
+  const q     = query.toLowerCase();
+  let pos = lower.indexOf(q);
+  if (pos === -1) return '';   // 本文に無い（ファイル名のみマッチ）
+
+  const snippets = [];
+  let count = 0;
+  while (pos !== -1 && count < 3) {       // 最大3箇所
+    const start = Math.max(0, pos - 25);
+    const end   = Math.min(text.length, pos + query.length + 35);
+    let frag = text.slice(start, end).replace(/\s+/g, ' ').trim();
+    if (start > 0) frag = '…' + frag;
+    if (end < text.length) frag = frag + '…';
+    snippets.push(highlight(esc(frag), query));
+    count++;
+    pos = lower.indexOf(q, pos + query.length);
+  }
+  return snippets.join('<br>');
+}
+
 // 検索キーワードをハイライト
 function highlight(text, query) {
   const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
-  return text.replace(re, '<mark style="background:#ffd700;color:#000;border-radius:2px;">$1</mark>');
+  return text.replace(re, '<mark>$1</mark>');
 }
 
 /* ── 検索インデックスをバックグラウンドで全再帰構築 ── */
