@@ -91,6 +91,42 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ── 検索バー ── */
+#search-bar {
+  display: flex;
+  background: var(--bg-sidebar);
+}
+#search-input {
+  flex: 1; min-width: 0;
+  background: var(--bg-base); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 7px 10px;
+  color: var(--text); font-size: 13px; outline: none;
+  -webkit-appearance: none;
+}
+#search-input:focus { border-color: var(--accent); }
+
+/* 検索結果 */
+#search-results { background: var(--bg-sidebar); }
+
+.search-result-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 12px; cursor: pointer; font-size: 13px;
+  border-left: 3px solid transparent;
+  white-space: nowrap; overflow: hidden;
+}
+.search-result-item:active { background: var(--bg-hover); }
+.search-result-item.active  { background: var(--bg-hover); border-left-color: var(--accent); color: var(--accent); }
+.search-result-item .sr-icon { flex-shrink: 0; font-size: 15px; }
+.search-result-item .sr-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+.search-empty {
+  padding: 16px 14px; font-size: 12px; color: var(--text-muted); text-align: center;
+}
+.search-loading {
+  padding: 12px 14px; font-size: 12px; color: var(--text-muted);
+  display: flex; align-items: center; gap: 8px;
+}
+
 .tree-item {
   display: flex; align-items: center; gap: 5px;
   padding: 7px 10px; cursor: pointer; font-size: 13px;

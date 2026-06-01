@@ -26,6 +26,11 @@ const UI = {
   fileTree:        $('file-tree'),
   btnRefresh:      $('btn-refresh'),
   btnSidebarToggle:$('btn-sidebar-toggle'),
+  btnSearchToggle: $('btn-search-toggle'),
+  searchBar:       $('search-bar'),
+  searchInput:     $('search-input'),
+  btnSearchClear:  $('btn-search-clear'),
+  searchResults:   $('search-results'),
   btnThumbs:       $('btn-thumbs'),
   pageIndicator:   $('page-indicator'),
   viewerWrap:      $('viewer-wrap'),
@@ -124,6 +129,121 @@ UI.btnRefresh.addEventListener('click', () => {
   const f = AUTH.getFolder();
   if (f.id) loadTree(f.id, UI.fileTree, 0);
 });
+
+/* ── 全文検索 ── */
+let searchTimer = null;
+
+function openSearch() {
+  UI.searchBar.style.display    = 'flex';
+  UI.searchResults.style.display = 'flex';
+  UI.fileTree.style.display      = 'none';
+  UI.btnSearchToggle.classList.add('active');
+  setTimeout(() => UI.searchInput.focus(), 50);
+}
+
+function closeSearch() {
+  UI.searchBar.style.display     = 'none';
+  UI.searchResults.style.display = 'none';
+  UI.fileTree.style.display      = 'block';
+  UI.searchInput.value           = '';
+  UI.searchResults.innerHTML     = '';
+  UI.btnSearchToggle.classList.remove('active');
+  clearTimeout(searchTimer);
+}
+
+UI.btnSearchToggle.addEventListener('click', () => {
+  UI.searchBar.style.display === 'none' ? openSearch() : closeSearch();
+});
+UI.btnSearchClear.addEventListener('click', closeSearch);
+
+UI.searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = UI.searchInput.value.trim();
+  if (!q) { UI.searchResults.innerHTML = ''; return; }
+  searchTimer = setTimeout(() => doSearch(q), 500);
+});
+
+// Enterキーで即時検索
+UI.searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    clearTimeout(searchTimer);
+    const q = UI.searchInput.value.trim();
+    if (q) doSearch(q);
+  }
+  if (e.key === 'Escape') closeSearch();
+});
+
+async function doSearch(query) {
+  UI.searchResults.innerHTML =
+    '<div class="search-loading"><div class="spinner"></div>検索中…</div>';
+
+  const folder = AUTH.getFolder();
+  try {
+    // Google Drive API で全文検索（ファイル名・内容）
+    // フォルダIDが設定されていれば祖先フォルダ内に限定
+    let qStr = `fullText contains '${query.replace(/'/g,"\\'")}' and trashed=false and mimeType != 'application/vnd.google-apps.folder'`;
+    if (folder.id) {
+      qStr += ` and '${folder.id}' in ancestors`;
+    }
+    const url = `https://www.googleapis.com/drive/v3/files` +
+                `?q=${encodeURIComponent(qStr)}` +
+                `&fields=files(id,name,mimeType)` +
+                `&orderBy=name&pageSize=50` +
+                `&key=${CONFIG.googleApiKey}`;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error('検索失敗 (status ' + res.status + ')');
+    const data  = await res.json();
+    const files = data.files || [];
+    renderSearchResults(files, query);
+  } catch(e) {
+    UI.searchResults.innerHTML =
+      `<div class="search-empty">⚠ ${esc(e.message)}</div>`;
+  }
+}
+
+function renderSearchResults(files, query) {
+  UI.searchResults.innerHTML = '';
+  if (!files.length) {
+    UI.searchResults.innerHTML =
+      `<div class="search-empty">「${esc(query)}」に一致するファイルはありません</div>`;
+    return;
+  }
+
+  // 件数表示
+  const info = document.createElement('div');
+  info.style.cssText = 'padding:6px 12px;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);';
+  info.textContent = `${files.length} 件見つかりました`;
+  UI.searchResults.appendChild(info);
+
+  files.forEach(file => {
+    const mime = file.mimeType || getMime(file.name);
+    const icon = isVideo(mime) ? '🎬'
+      : mime.includes('presentation') ? '📋'
+      : mime.includes('spreadsheet') || mime.includes('excel') ? '📊'
+      : mime.includes('word') || mime.includes('doc') ? '📝'
+      : '📄';
+
+    const item = document.createElement('div');
+    item.className = 'search-result-item' + (file.id === S.fileId ? ' active' : '');
+    item.innerHTML =
+      `<span class="sr-icon">${icon}</span>` +
+      `<span class="sr-name" title="${esc(file.name)}">${highlight(esc(file.name), query)}</span>`;
+
+    item.addEventListener('click', () => {
+      UI.searchResults.querySelectorAll('.search-result-item')
+        .forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      openFile(file.id, file.name, mime);
+    });
+    UI.searchResults.appendChild(item);
+  });
+}
+
+// 検索キーワードをハイライト
+function highlight(text, query) {
+  const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
+  return text.replace(re, '<mark style="background:#ffd700;color:#000;border-radius:2px;">$1</mark>');
+}
 
 /* ── Google Drive API（APIキー使用・公開フォルダのみ） ── */
 async function driveListFolder(folderId) {
