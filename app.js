@@ -254,14 +254,15 @@ async function collectAllFiles(folderId) {
       if (isFolder(f.mimeType)) {
         await collectAllFiles(f.id);
       } else {
-        const mime = f.mimeType || getMime(f.name);
-        if (!S.allFiles.find(x => x.id === f.id)) {
+        const rf   = resolveFile(f);   // ショートカット解決
+        const mime = rf.mimeType;
+        if (!S.allFiles.find(x => x.id === rf.id)) {
           const icon = isVideo(mime) ? '🎬'
             : mime.includes('presentation') ? '📋'
             : mime.includes('spreadsheet') || mime.includes('excel') ? '📊'
             : mime.includes('word') || mime.includes('doc') ? '📝'
             : '📄';
-          S.allFiles.push({ id: f.id, name: f.name, mimeType: mime, icon, text: '' });
+          S.allFiles.push({ id: rf.id, name: rf.name, mimeType: mime, icon, text: '' });
         }
       }
     }
@@ -327,9 +328,7 @@ async function buildIndex(folderId) {
   S.allFiles = [];
   await collectAllFiles(folderId);  // ファイル名を即座に揃える
   const pdfCount = S.allFiles.filter(f => isPDF(f.mimeType)).length;
-  // デバッグ: 最初の3件の実際のmimeTypeを表示
-  const sample = S.allFiles.slice(0, 3).map(f => `${f.name}=[${f.mimeType}]`).join(' / ');
-  showToast(`全${S.allFiles.length}件/PDF${pdfCount}件 例: ${sample}`, 9000);
+  if (pdfCount > 0) showToast(`${pdfCount}件のPDF本文を索引します…`, 3000);
   extractAllText();                 // 本文抽出はバックグラウンド（awaitしない）
 }
 
@@ -345,11 +344,23 @@ async function fetchFileBuffer(fileId) {
 async function driveListFolder(folderId) {
   const q   = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
   const url = `https://www.googleapis.com/drive/v3/files?q=${q}` +
-              `&fields=files(id,name,mimeType)&orderBy=name&pageSize=200` +
-              `&key=${CONFIG.googleApiKey}`;
+              `&fields=files(id,name,mimeType,shortcutDetails(targetId,targetMimeType))` +
+              `&orderBy=name&pageSize=200&key=${CONFIG.googleApiKey}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('フォルダ一覧の取得に失敗 — Driveフォルダを「リンクを知っている全員が閲覧可」に設定してください');
   return (await res.json()).files || [];
+}
+
+// ショートカットを実体に解決して {id, name, mimeType} を返す
+function resolveFile(f) {
+  if (f.mimeType === 'application/vnd.google-apps.shortcut' && f.shortcutDetails) {
+    return {
+      id:       f.shortcutDetails.targetId || f.id,
+      name:     f.name,
+      mimeType: f.shortcutDetails.targetMimeType || getMime(f.name),
+    };
+  }
+  return { id: f.id, name: f.name, mimeType: f.mimeType || getMime(f.name) };
 }
 
 /* ── ファイルツリー ── */
@@ -384,7 +395,8 @@ async function loadTree(folderId, container, depth) {
     }
 
     for (const file of docs) {
-      const mime = file.mimeType || getMime(file.name);
+      const rf   = resolveFile(file);   // ショートカット解決
+      const mime = rf.mimeType;
       const icon = isVideo(mime) ? '🎬'
         : mime.includes('presentation') ? '📋'
         : mime.includes('spreadsheet') || mime.includes('excel') || mime.includes('xls') ? '📊'
@@ -394,11 +406,11 @@ async function loadTree(folderId, container, depth) {
       const item = document.createElement('div');
       item.className = 'tree-item';
       item.style.paddingLeft = (18 + depth * 14) + 'px';
-      item.innerHTML = `<span class="ti-icon">${icon}</span><span class="ti-name">${esc(file.name)}</span>`;
+      item.innerHTML = `<span class="ti-icon">${icon}</span><span class="ti-name">${esc(rf.name)}</span>`;
       item.addEventListener('click', () => {
         document.querySelectorAll('.tree-item.active').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
-        openFile(file.id, file.name, mime);
+        openFile(rf.id, rf.name, mime);
       });
       container.appendChild(item);
     }
