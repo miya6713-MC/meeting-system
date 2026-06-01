@@ -99,6 +99,8 @@ function startApp() {
   const folder = AUTH.getFolder();
   if (folder.id) {
     loadTree(folder.id, UI.fileTree, 0);
+    // バックグラウンドで全ファイルをインデックス（検索用）
+    indexAllFiles(folder.id);
   } else {
     UI.fileTree.innerHTML =
       '<div style="padding:12px 14px;font-size:12px;color:#f85149;">' +
@@ -128,7 +130,11 @@ UI.btnLogin.addEventListener('click', () => {
 UI.btnLogout.addEventListener('click', () => { AUTH.clearSession(); location.reload(); });
 UI.btnRefresh.addEventListener('click', () => {
   const f = AUTH.getFolder();
-  if (f.id) loadTree(f.id, UI.fileTree, 0);
+  if (f.id) {
+    S.allFiles = [];
+    loadTree(f.id, UI.fileTree, 0);
+    indexAllFiles(f.id);
+  }
 });
 
 /* ── 全文検索 ── */
@@ -177,15 +183,14 @@ UI.searchInput.addEventListener('keydown', e => {
 });
 
 function doSearch(query) {
-  if (!S.allFiles.length) {
-    UI.searchResults.innerHTML =
-      '<div class="search-empty">まず左のツリーを開いてファイルを読み込んでください</div>';
-    return;
-  }
-
-  // ローカル検索（読み込み済みファイル名から）
   const q       = query.toLowerCase();
   const results = S.allFiles.filter(f => f.name.toLowerCase().includes(q));
+
+  if (!results.length && !S.allFiles.length) {
+    UI.searchResults.innerHTML =
+      '<div class="search-empty"><div class="spinner" style="margin:0 auto 8px;"></div>インデックス作成中…少し待ってから再度検索してください</div>';
+    return;
+  }
   renderSearchResults(results, query);
 }
 
@@ -224,6 +229,28 @@ function renderSearchResults(files, query) {
 function highlight(text, query) {
   const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
   return text.replace(re, '<mark style="background:#ffd700;color:#000;border-radius:2px;">$1</mark>');
+}
+
+/* ── 検索インデックスをバックグラウンドで全再帰構築 ── */
+async function indexAllFiles(folderId) {
+  try {
+    const files = await driveListFolder(folderId);
+    for (const f of files) {
+      if (isFolder(f.mimeType)) {
+        await indexAllFiles(f.id);           // サブフォルダを再帰
+      } else {
+        const mime = f.mimeType || getMime(f.name);
+        if (!S.allFiles.find(x => x.id === f.id)) {
+          const icon = isVideo(mime) ? '🎬'
+            : mime.includes('presentation') ? '📋'
+            : mime.includes('spreadsheet') || mime.includes('excel') ? '📊'
+            : mime.includes('word') || mime.includes('doc') ? '📝'
+            : '📄';
+          S.allFiles.push({ id: f.id, name: f.name, mimeType: mime, icon });
+        }
+      }
+    }
+  } catch(e) { /* サイレント失敗 */ }
 }
 
 /* ── Google Drive API（APIキー使用・公開フォルダのみ） ── */
