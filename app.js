@@ -4,6 +4,7 @@
 'use strict';
 
 const S = {
+  allFiles: [],              // ツリー読み込み時に全ファイルを蓄積（検索用）
   fileId: null, fileName: '', mimeType: '',
   sidebarOpen: true, thumbsOpen: false,
   isPresenter: false, isViewer: false, sessionId: null,
@@ -163,10 +164,9 @@ UI.searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   const q = UI.searchInput.value.trim();
   if (!q) { UI.searchResults.innerHTML = ''; return; }
-  searchTimer = setTimeout(() => doSearch(q), 500);
+  searchTimer = setTimeout(() => doSearch(q), 200);
 });
 
-// Enterキーで即時検索
 UI.searchInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     clearTimeout(searchTimer);
@@ -176,32 +176,17 @@ UI.searchInput.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeSearch();
 });
 
-async function doSearch(query) {
-  UI.searchResults.innerHTML =
-    '<div class="search-loading"><div class="spinner"></div>検索中…</div>';
-
-  const folder = AUTH.getFolder();
-  try {
-    // Google Drive API で全文検索（ファイル名・内容）
-    // フォルダIDが設定されていれば祖先フォルダ内に限定
-    let qStr = `fullText contains '${query.replace(/'/g,"\\'")}' and trashed=false and mimeType != 'application/vnd.google-apps.folder'`;
-    if (folder.id) {
-      qStr += ` and '${folder.id}' in ancestors`;
-    }
-    const url = `https://www.googleapis.com/drive/v3/files` +
-                `?q=${encodeURIComponent(qStr)}` +
-                `&fields=files(id,name,mimeType)` +
-                `&orderBy=name&pageSize=50` +
-                `&key=${CONFIG.googleApiKey}`;
-    const res  = await fetch(url);
-    if (!res.ok) throw new Error('検索失敗 (status ' + res.status + ')');
-    const data  = await res.json();
-    const files = data.files || [];
-    renderSearchResults(files, query);
-  } catch(e) {
+function doSearch(query) {
+  if (!S.allFiles.length) {
     UI.searchResults.innerHTML =
-      `<div class="search-empty">⚠ ${esc(e.message)}</div>`;
+      '<div class="search-empty">まず左のツリーを開いてファイルを読み込んでください</div>';
+    return;
   }
+
+  // ローカル検索（読み込み済みファイル名から）
+  const q       = query.toLowerCase();
+  const results = S.allFiles.filter(f => f.name.toLowerCase().includes(q));
+  renderSearchResults(results, query);
 }
 
 function renderSearchResults(files, query) {
@@ -219,24 +204,17 @@ function renderSearchResults(files, query) {
   UI.searchResults.appendChild(info);
 
   files.forEach(file => {
-    const mime = file.mimeType || getMime(file.name);
-    const icon = isVideo(mime) ? '🎬'
-      : mime.includes('presentation') ? '📋'
-      : mime.includes('spreadsheet') || mime.includes('excel') ? '📊'
-      : mime.includes('word') || mime.includes('doc') ? '📝'
-      : '📄';
-
     const item = document.createElement('div');
     item.className = 'search-result-item' + (file.id === S.fileId ? ' active' : '');
     item.innerHTML =
-      `<span class="sr-icon">${icon}</span>` +
+      `<span class="sr-icon">${file.icon || '📄'}</span>` +
       `<span class="sr-name" title="${esc(file.name)}">${highlight(esc(file.name), query)}</span>`;
 
     item.addEventListener('click', () => {
       UI.searchResults.querySelectorAll('.search-result-item')
         .forEach(el => el.classList.remove('active'));
       item.classList.add('active');
-      openFile(file.id, file.name, mime);
+      openFile(file.id, file.name, file.mimeType);
     });
     UI.searchResults.appendChild(item);
   });
@@ -261,6 +239,7 @@ async function driveListFolder(folderId) {
 
 /* ── ファイルツリー ── */
 async function loadTree(folderId, container, depth) {
+  if (depth === 0) S.allFiles = []; // ルートの場合はリセット
   container.innerHTML = '<div style="padding:10px 14px;color:#8b949e;font-size:12px">読み込み中…</div>';
   try {
     const files   = await driveListFolder(folderId);
@@ -297,6 +276,11 @@ async function loadTree(folderId, container, depth) {
         : mime.includes('spreadsheet') || mime.includes('excel') || mime.includes('xls') ? '📊'
         : mime.includes('word') || mime.includes('doc') ? '📝'
         : '📄';
+      // 検索用インデックスに追加
+      if (!S.allFiles.find(f => f.id === file.id)) {
+        S.allFiles.push({ id: file.id, name: file.name, mimeType: mime, icon });
+      }
+
       const item = document.createElement('div');
       item.className = 'tree-item';
       item.style.paddingLeft = (18 + depth * 14) + 'px';
