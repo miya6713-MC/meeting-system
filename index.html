@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>会議システム</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
 </head>
@@ -69,6 +70,9 @@
              autocomplete="off" autocorrect="off" spellcheck="false">
       <button class="btn icon-only" id="btn-search-clear" title="閉じる">✕</button>
     </div>
+
+    <!-- インデックス進捗 -->
+    <div id="index-status" style="display:none; padding:6px 12px; font-size:11px; color:var(--text-muted); background:var(--bg-sidebar); border-bottom:1px solid var(--border);"></div>
 
     <!-- 検索結果（検索時のみ表示） -->
     <div id="search-results"></div>

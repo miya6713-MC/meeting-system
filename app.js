@@ -4,7 +4,9 @@
 'use strict';
 
 const S = {
-  allFiles: [],              // ツリー読み込み時に全ファイルを蓄積（検索用）
+  allFiles: [],              // 全ファイル（検索用）: {id, name, mimeType, icon, text}
+  indexing: false,           // インデックス作成中フラグ
+  indexDone: 0, indexTotal: 0,
   fileId: null, fileName: '', mimeType: '',
   sidebarOpen: true, thumbsOpen: false,
   isPresenter: false, isViewer: false, sessionId: null,
@@ -84,6 +86,7 @@ const getMime = name => {
 };
 const isFolder = m => m.includes('folder');
 const isVideo  = m => m.startsWith('video/');
+const isPDF    = m => m === 'application/pdf';
 
 /* ── ログイン ── */
 function startApp() {
@@ -96,11 +99,17 @@ function startApp() {
   initBroadcastChannel();
   initFirebase();
   UI.btnSidebarToggle.classList.add('active'); // 初期状態はサイドバー表示
+  // PDF.js 初期化（本文抽出用）
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
   const folder = AUTH.getFolder();
   if (folder.id) {
     loadTree(folder.id, UI.fileTree, 0);
-    // バックグラウンドで全ファイルをインデックス（検索用）
-    indexAllFiles(folder.id);
+    // バックグラウンドで全文インデックスを構築
+    buildIndex(folder.id);
   } else {
     UI.fileTree.innerHTML =
       '<div style="padding:12px 14px;font-size:12px;color:#f85149;">' +
@@ -131,9 +140,8 @@ UI.btnLogout.addEventListener('click', () => { AUTH.clearSession(); location.rel
 UI.btnRefresh.addEventListener('click', () => {
   const f = AUTH.getFolder();
   if (f.id) {
-    S.allFiles = [];
     loadTree(f.id, UI.fileTree, 0);
-    indexAllFiles(f.id);
+    buildIndex(f.id);
   }
 });
 
@@ -183,14 +191,19 @@ UI.searchInput.addEventListener('keydown', e => {
 });
 
 function doSearch(query) {
-  const q       = query.toLowerCase();
-  const results = S.allFiles.filter(f => f.name.toLowerCase().includes(q));
+  const q = query.toLowerCase();
 
-  if (!results.length && !S.allFiles.length) {
+  if (!S.allFiles.length) {
     UI.searchResults.innerHTML =
-      '<div class="search-empty"><div class="spinner" style="margin:0 auto 8px;"></div>インデックス作成中…少し待ってから再度検索してください</div>';
+      '<div class="search-empty"><div class="spinner" style="margin:0 auto 8px;"></div>準備中…少し待ってから再度検索してください</div>';
     return;
   }
+
+  // ファイル名 OR 本文テキストにマッチ
+  const results = S.allFiles.filter(f =>
+    f.name.toLowerCase().includes(q) ||
+    (f.text && f.text.toLowerCase().includes(q))
+  );
   renderSearchResults(results, query);
 }
 
@@ -232,12 +245,14 @@ function highlight(text, query) {
 }
 
 /* ── 検索インデックスをバックグラウンドで全再帰構築 ── */
-async function indexAllFiles(folderId) {
+
+// ① まず全ファイルを再帰列挙（ファイル名のみ・高速）
+async function collectAllFiles(folderId) {
   try {
     const files = await driveListFolder(folderId);
     for (const f of files) {
       if (isFolder(f.mimeType)) {
-        await indexAllFiles(f.id);           // サブフォルダを再帰
+        await collectAllFiles(f.id);
       } else {
         const mime = f.mimeType || getMime(f.name);
         if (!S.allFiles.find(x => x.id === f.id)) {
@@ -246,11 +261,67 @@ async function indexAllFiles(folderId) {
             : mime.includes('spreadsheet') || mime.includes('excel') ? '📊'
             : mime.includes('word') || mime.includes('doc') ? '📝'
             : '📄';
-          S.allFiles.push({ id: f.id, name: f.name, mimeType: mime, icon });
+          S.allFiles.push({ id: f.id, name: f.name, mimeType: mime, icon, text: '' });
         }
       }
     }
   } catch(e) { /* サイレント失敗 */ }
+}
+
+// ② 各PDFの本文テキストを抽出（重い処理・逐次実行）
+async function extractAllText() {
+  const pdfs = S.allFiles.filter(f => isPDF(f.mimeType) && !f.text);
+  S.indexTotal = pdfs.length;
+  S.indexDone  = 0;
+  S.indexing   = true;
+  updateIndexStatus();
+
+  for (const f of pdfs) {
+    try {
+      const buf = await fetchFileBuffer(f.id);
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      let text = '';
+      const maxPages = Math.min(doc.numPages, 30); // 上限30ページ
+      for (let p = 1; p <= maxPages; p++) {
+        const page = await doc.getPage(p);
+        const tc   = await page.getTextContent();
+        text += tc.items.map(i => i.str).join(' ') + ' ';
+      }
+      f.text = text;
+    } catch(e) {
+      f.text = ''; // 失敗してもファイル名検索は可能
+    }
+    S.indexDone++;
+    updateIndexStatus();
+  }
+  S.indexing = false;
+  updateIndexStatus();
+}
+
+function updateIndexStatus() {
+  const el = document.getElementById('index-status');
+  if (!el) return;
+  if (S.indexing) {
+    el.style.display = 'block';
+    el.textContent = `🔍 本文を読み込み中… ${S.indexDone}/${S.indexTotal}`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+// ③ 統合インデックス構築
+async function buildIndex(folderId) {
+  S.allFiles = [];
+  await collectAllFiles(folderId);  // ファイル名を即座に揃える
+  extractAllText();                 // 本文抽出はバックグラウンド（awaitしない）
+}
+
+// Drive ファイルをダウンロード（APIキー・公開ファイル）
+async function fetchFileBuffer(fileId) {
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${CONFIG.googleApiKey}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('DL失敗');
+  return res.arrayBuffer();
 }
 
 /* ── Google Drive API（APIキー使用・公開フォルダのみ） ── */
@@ -266,7 +337,6 @@ async function driveListFolder(folderId) {
 
 /* ── ファイルツリー ── */
 async function loadTree(folderId, container, depth) {
-  if (depth === 0) S.allFiles = []; // ルートの場合はリセット
   container.innerHTML = '<div style="padding:10px 14px;color:#8b949e;font-size:12px">読み込み中…</div>';
   try {
     const files   = await driveListFolder(folderId);
@@ -303,10 +373,6 @@ async function loadTree(folderId, container, depth) {
         : mime.includes('spreadsheet') || mime.includes('excel') || mime.includes('xls') ? '📊'
         : mime.includes('word') || mime.includes('doc') ? '📝'
         : '📄';
-      // 検索用インデックスに追加
-      if (!S.allFiles.find(f => f.id === file.id)) {
-        S.allFiles.push({ id: file.id, name: file.name, mimeType: mime, icon });
-      }
 
       const item = document.createElement('div');
       item.className = 'tree-item';
