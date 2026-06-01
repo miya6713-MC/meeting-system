@@ -274,6 +274,7 @@ async function extractAllText() {
   S.indexTotal = pdfs.length;
   S.indexDone  = 0;
   S.indexing   = true;
+  let ok = 0, ng = 0, lastErr = '';
   updateIndexStatus();
 
   for (const f of pdfs) {
@@ -281,21 +282,33 @@ async function extractAllText() {
       const buf = await fetchFileBuffer(f.id);
       const doc = await pdfjsLib.getDocument({ data: buf }).promise;
       let text = '';
-      const maxPages = Math.min(doc.numPages, 30); // 上限30ページ
+      const maxPages = Math.min(doc.numPages, 30);
       for (let p = 1; p <= maxPages; p++) {
         const page = await doc.getPage(p);
         const tc   = await page.getTextContent();
         text += tc.items.map(i => i.str).join(' ') + ' ';
       }
-      f.text = text;
+      f.text = text || ' ';
+      ok++;
     } catch(e) {
-      f.text = ''; // 失敗してもファイル名検索は可能
+      f.text = '';
+      ng++;
+      lastErr = e.message;
     }
     S.indexDone++;
     updateIndexStatus();
   }
   S.indexing = false;
   updateIndexStatus();
+
+  // 結果を通知
+  if (ng > 0 && ok === 0) {
+    showToast(`⚠ 本文の読み込みに全て失敗（${ng}件）: ${lastErr}`, 6000);
+  } else if (ng > 0) {
+    showToast(`本文索引: 成功${ok}件 / 失敗${ng}件`, 4000);
+  } else if (ok > 0) {
+    showToast(`✅ ${ok}件の本文を索引しました。全文検索が可能です`, 3500);
+  }
 }
 
 function updateIndexStatus() {
