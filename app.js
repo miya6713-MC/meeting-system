@@ -132,27 +132,30 @@ UI.btnRefresh.addEventListener('click', () => {
 
 /* ── 全文検索 ── */
 let searchTimer = null;
+let searchOpen  = false;
 
 function openSearch() {
-  UI.searchBar.style.display    = 'flex';
-  UI.searchResults.style.display = 'flex';
-  UI.fileTree.style.display      = 'none';
+  searchOpen = true;
+  UI.searchBar.style.setProperty('display', 'flex', 'important');
+  UI.searchResults.style.setProperty('display', 'block', 'important');
+  UI.fileTree.style.setProperty('display', 'none', 'important');
   UI.btnSearchToggle.classList.add('active');
-  setTimeout(() => UI.searchInput.focus(), 50);
+  setTimeout(() => UI.searchInput.focus(), 80);
 }
 
 function closeSearch() {
-  UI.searchBar.style.display     = 'none';
-  UI.searchResults.style.display = 'none';
-  UI.fileTree.style.display      = 'block';
-  UI.searchInput.value           = '';
-  UI.searchResults.innerHTML     = '';
+  searchOpen = false;
+  UI.searchBar.style.setProperty('display', 'none', 'important');
+  UI.searchResults.style.setProperty('display', 'none', 'important');
+  UI.fileTree.style.setProperty('display', 'block', 'important');
+  UI.searchInput.value    = '';
+  UI.searchResults.innerHTML = '';
   UI.btnSearchToggle.classList.remove('active');
   clearTimeout(searchTimer);
 }
 
 UI.btnSearchToggle.addEventListener('click', () => {
-  UI.searchBar.style.display === 'none' ? openSearch() : closeSearch();
+  searchOpen ? closeSearch() : openSearch();
 });
 UI.btnSearchClear.addEventListener('click', closeSearch);
 

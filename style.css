@@ -93,8 +93,13 @@ html, body {
 
 /* ── 検索バー ── */
 #search-bar {
-  display: flex;
+  display: none;   /* JS で開閉 */
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
   background: var(--bg-sidebar);
+  flex-shrink: 0;
 }
 #search-input {
   flex: 1; min-width: 0;
@@ -102,11 +107,19 @@ html, body {
   border-radius: var(--radius); padding: 7px 10px;
   color: var(--text); font-size: 13px; outline: none;
   -webkit-appearance: none;
+  -webkit-user-select: text; user-select: text;
 }
 #search-input:focus { border-color: var(--accent); }
 
 /* 検索結果 */
-#search-results { background: var(--bg-sidebar); }
+#search-results {
+  display: none;   /* JS で開閉 */
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-sidebar);
+}
 
 .search-result-item {
   display: flex; align-items: center; gap: 7px;

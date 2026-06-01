@@ -64,15 +64,14 @@
     </div>
 
     <!-- 検索バー（初期は非表示） -->
-    <div id="search-bar" style="display:none; padding:8px 10px; border-bottom:1px solid var(--border); gap:6px; align-items:center;">
+    <div id="search-bar">
       <input id="search-input" type="search" placeholder="ファイル名・内容を検索…"
-             autocomplete="off" autocorrect="off" spellcheck="false"
-             style="-webkit-user-select:text; user-select:text;">
-      <button class="btn icon-only" id="btn-search-clear" title="閉じる" style="flex-shrink:0;">✕</button>
+             autocomplete="off" autocorrect="off" spellcheck="false">
+      <button class="btn icon-only" id="btn-search-clear" title="閉じる">✕</button>
     </div>
 
     <!-- 検索結果（検索時のみ表示） -->
-    <div id="search-results" style="display:none; flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+    <div id="search-results"></div>
 
     <div id="file-tree"></div>
   </aside>
