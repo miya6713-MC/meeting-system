@@ -541,6 +541,11 @@ function initFirebase() {
 /* ── 起動 ── */
 window.addEventListener('load', () => {
   $('login-title').textContent = CONFIG.appName;
-  const session = AUTH.getSession();
-  if (session) startApp();
+
+  // ▼▼▼ 動作確認用: ログインをスキップして直接起動 ▼▼▼
+  startApp();
+  // ▲▲▲ 本番でログインを使う場合は上の startApp(); を削除し、
+  //     下のコメントを外してください ▼▼▼
+  // const session = AUTH.getSession();
+  // if (session) startApp();
 });
